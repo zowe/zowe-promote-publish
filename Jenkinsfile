@@ -61,8 +61,7 @@ customParameters.push(string(
 customParameters.push(string(
   name: 'ZOWE_RELEASE_REPOSITORY',
   description: 'Zowe release repository',
-  // defaultValue: 'libs-release-local',
-  defaultValue: 'jacktest-release-local',
+  defaultValue: 'libs-release-local',
   trim: true,
   required: true
 ))
