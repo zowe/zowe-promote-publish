@@ -73,6 +73,13 @@ customParameters.push(string(
   required: true
 ))
 customParameters.push(string(
+  name: 'ZOWE_RELEASE_CATEGORY',
+  description: 'REQUIRED. Zowe release category. For example, stable',
+  defaultValue: 'stable',
+  trim: true,
+  required: true
+))
+customParameters.push(string(
   name: 'ZOWE_RELEASE_VERSION',
   description: 'REQUIRED. Zowe release version without prefix v. For example, 0.9.0',
   defaultValue: '',
@@ -142,6 +149,9 @@ node ('ibm-jenkins-slave-nvm') {
       }
       if (!params.ZOWE_BUILD_NUMBER) {
         error "ZOWE_BUILD_NUMBER is required to promote build."
+      }
+      if (!params.ZOWE_RELEASE_CATEGORY) {
+        error "ZOWE_RELEASE_CATEGORY is required to promote build."
       }
       if (!params.ZOWE_RELEASE_VERSION) {
         error "ZOWE_RELEASE_VERSION is required to promote build."
@@ -231,7 +241,7 @@ EOF"""
 
         // move to target folder, split and generate hash
         sh """SSHPASS=${PASSWORD} sshpass -e ssh -tt -o StrictHostKeyChecking=no -o PubkeyAuthentication=no -p ${params.PUBLISH_SSH_PORT} ${USERNAME}@${params.PUBLISH_SSH_HOST} << EOF
-cd ~ && chmod +x zowe-publish.sh && ./zowe-publish.sh "${params.PUBLISH_DIRECTORY}" "${params.ZOWE_RELEASE_VERSION}" || exit 1
+cd ~ && chmod +x zowe-publish.sh && ./zowe-publish.sh "${params.PUBLISH_DIRECTORY}" "${params.ZOWE_RELEASE_CATEGORY}" "${params.ZOWE_RELEASE_VERSION}" || exit 1
 exit 0
 EOF"""
       }

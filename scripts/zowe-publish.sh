@@ -24,12 +24,17 @@
 ################################################################################
 
 ZOWE_BUILD_DIRECTORY=$1
-ZOWE_BUILD_VERSION=$2
+ZOWE_BUILD_CATEGORY=$2
+ZOWE_BUILD_VERSION=$3
 ZOWE_BUILD_FILE=zowe-$ZOWE_BUILD_VERSION.pax
 
 # test parameters
 if [ -z "$ZOWE_BUILD_DIRECTORY" ]; then
   echo "Error: build directory is missing"
+  exit 1
+fi
+if [ -z "$ZOWE_BUILD_CATEGORY" ]; then
+  echo "Error: build category is missing"
   exit 1
 fi
 if [ -z "$ZOWE_BUILD_VERSION" ]; then
@@ -43,9 +48,9 @@ fi
 
 # move Zowe build to target folder
 echo "> move $ZOWE_BUILD_FILE to $ZOWE_BUILD_DIRECTORY/$ZOWE_BUILD_VERSION ..."
-mkdir -p $ZOWE_BUILD_DIRECTORY/$ZOWE_BUILD_VERSION
-mv ~/$ZOWE_BUILD_FILE $ZOWE_BUILD_DIRECTORY/$ZOWE_BUILD_VERSION
-cd $ZOWE_BUILD_DIRECTORY/$ZOWE_BUILD_VERSION
+mkdir -p $ZOWE_BUILD_DIRECTORY/$ZOWE_BUILD_CATEGORY/$ZOWE_BUILD_VERSION
+mv ~/$ZOWE_BUILD_FILE $ZOWE_BUILD_DIRECTORY/$ZOWE_BUILD_CATEGORY/$ZOWE_BUILD_VERSION
+cd $ZOWE_BUILD_DIRECTORY/$ZOWE_BUILD_CATEGORY/$ZOWE_BUILD_VERSION
 
 # split into trunks
 echo "> split Zowe build ..."
@@ -64,8 +69,12 @@ done
 echo "> generating hash for Zowe build ..."
 gpg --print-md SHA512 $ZOWE_BUILD_FILE > $ZOWE_BUILD_FILE.sha512
 
+echo "> generating version file ..."
+echo "$ZOWE_BUILD_VERSION" > version
+
 # show build result
 echo "> build folder result:"
+pwd
 ls -la .
 
 # exit successful
