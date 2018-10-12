@@ -27,7 +27,6 @@ ZOWE_BUILD_DIRECTORY=$1
 ZOWE_BUILD_CATEGORY=$2
 ZOWE_BUILD_VERSION=$3
 ZOWE_BUILD_FILE=zowe-$ZOWE_BUILD_VERSION.pax
-ZOWE_FILES_DIR=zowe-${ZOWE_BUILD_VERSION}/files
 ZOWE_CLI_BUNDLE=zowe-cli-bundle.zip
 
 # test parameters
@@ -56,7 +55,7 @@ cd $ZOWE_BUILD_DIRECTORY/$ZOWE_BUILD_CATEGORY/$ZOWE_BUILD_VERSION
 
 # extract cli bundle
 echo "> extract Zowe CLI bundle ..."
-pax -s ":${ZOWE_FILES_DIR}/::p" -rf "${ZOWE_BUILD_FILE}" "${ZOWE_FILES_DIR}/${ZOWE_CLI_BUNDLE}"
+pax -s ":.\+/files/::p" -rf "${ZOWE_BUILD_FILE}" "*/files/${ZOWE_CLI_BUNDLE}"
 
 # split into trunks
 echo "> split Zowe build ..."
