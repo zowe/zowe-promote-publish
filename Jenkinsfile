@@ -125,9 +125,38 @@ node ('ibm-jenkins-slave-nvm') {
   currentBuild.result = 'SUCCESS'
 
   def releaseFilename = "zowe-${params.ZOWE_RELEASE_VERSION}.pax"
-  def releaseFileFull = "${params.ZOWE_RELEASE_REPOSITORY}${params.ZOWE_RELEASE_PATH}/${params.ZOWE_RELEASE_VERSION}/${releaseFilename}"
+  def releaseFilePath = "${params.ZOWE_RELEASE_REPOSITORY}${params.ZOWE_RELEASE_PATH}/${params.ZOWE_RELEASE_VERSION}"
+  def releaseFileFull = "${releaseFilePath}/${releaseFilename}"
 
   try {
+
+    stage('validate') {
+      // prepare JFrog CLI configurations
+      withCredentials([usernamePassword(credentialsId: params.ARTIFACTORY_SECRET, passwordVariable: 'PASSWORD', usernameVariable: 'USERNAME')]) {
+        sh "jfrog rt config rt-server-1 --url=${params.ARTIFACTORY_URL} --user=${USERNAME} --password=${PASSWORD}"
+      }
+
+      // check artifactory
+      def versionOnArtifactory = sh(
+        script: "jfrog rt s \"${releaseFilePath}/\"",
+        returnStdout: true
+      ).trim()
+      if (versionOnArtifactory != '[]') {
+        error "Zowe version ${params.ZOWE_RELEASE_VERSION} already exists (${releaseFilePath})"
+      }
+
+      // check deploy target directory
+      withCredentials([usernamePassword(credentialsId: params.PUBLISH_SSH_CREDENTIAL, passwordVariable: 'PASSWORD', usernameVariable: 'USERNAME')]) {
+        // move to target folder, split and generate hash
+        def versionOnPublishDir = sh(script:"""SSHPASS=${PASSWORD} sshpass -e ssh -tt -o StrictHostKeyChecking=no -o PubkeyAuthentication=no -p ${params.PUBLISH_SSH_PORT} ${USERNAME}@${params.PUBLISH_SSH_HOST} << EOF
+[ -d '${params.PUBLISH_DIRECTORY}/${params.ZOWE_RELEASE_CATEGORY}/${params.ZOWE_RELEASE_VERSION}' ] && exit 1
+exit 0
+EOF""", returnStatus:true)
+        if ("${status}" == "1") {
+        error "Zowe version ${params.ZOWE_RELEASE_VERSION} already exists (${params.PUBLISH_DIRECTORY}/${params.ZOWE_RELEASE_CATEGORY}/${params.ZOWE_RELEASE_VERSION})"
+        }
+      }
+    }
 
     stage('checkout') {
       // checkout source code
@@ -155,11 +184,6 @@ node ('ibm-jenkins-slave-nvm') {
       }
       if (!params.ZOWE_RELEASE_VERSION) {
         error "ZOWE_RELEASE_VERSION is required to promote build."
-      }
-
-      // prepare JFrog CLI configurations
-      withCredentials([usernamePassword(credentialsId: params.ARTIFACTORY_SECRET, passwordVariable: 'PASSWORD', usernameVariable: 'USERNAME')]) {
-        sh "jfrog rt config rt-server-1 --url=${params.ARTIFACTORY_URL} --user=${USERNAME} --password=${PASSWORD}"
       }
 
       // get build information
