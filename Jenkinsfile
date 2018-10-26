@@ -131,6 +131,22 @@ node ('ibm-jenkins-slave-nvm') {
   try {
 
     stage('validate') {
+      if (!params.ZOWE_RELEASE_REPOSITORY) {
+        error "ZOWE_RELEASE_REPOSITORY is required to promote build."
+      }
+      if (!params.ZOWE_BUILD_NAME) {
+        error "ZOWE_BUILD_NAME is required to promote build."
+      }
+      if (!params.ZOWE_BUILD_NUMBER) {
+        error "ZOWE_BUILD_NUMBER is required to promote build."
+      }
+      if (!params.ZOWE_RELEASE_CATEGORY) {
+        error "ZOWE_RELEASE_CATEGORY is required to promote build."
+      }
+      if (!params.ZOWE_RELEASE_VERSION) {
+        error "ZOWE_RELEASE_VERSION is required to promote build."
+      }
+
       // prepare JFrog CLI configurations
       withCredentials([usernamePassword(credentialsId: params.ARTIFACTORY_SECRET, passwordVariable: 'PASSWORD', usernameVariable: 'USERNAME')]) {
         sh "jfrog rt config rt-server-1 --url=${params.ARTIFACTORY_URL} --user=${USERNAME} --password=${PASSWORD}"
@@ -170,22 +186,6 @@ EOF""", returnStatus:true)
     }
 
     stage('promote') {
-      if (!params.ZOWE_RELEASE_REPOSITORY) {
-        error "ZOWE_RELEASE_REPOSITORY is required to promote build."
-      }
-      if (!params.ZOWE_BUILD_NAME) {
-        error "ZOWE_BUILD_NAME is required to promote build."
-      }
-      if (!params.ZOWE_BUILD_NUMBER) {
-        error "ZOWE_BUILD_NUMBER is required to promote build."
-      }
-      if (!params.ZOWE_RELEASE_CATEGORY) {
-        error "ZOWE_RELEASE_CATEGORY is required to promote build."
-      }
-      if (!params.ZOWE_RELEASE_VERSION) {
-        error "ZOWE_RELEASE_VERSION is required to promote build."
-      }
-
       // get build information
       def buildsInfoText = sh(
         script: "jfrog rt search --build=\"${params.ZOWE_BUILD_NAME}/${params.ZOWE_BUILD_NUMBER}\" ${params.ZOWE_BUILD_REPOSITORY}/*.pax",
