@@ -168,7 +168,7 @@ node ('ibm-jenkins-slave-nvm') {
 [ -d '${params.PUBLISH_DIRECTORY}/${params.ZOWE_RELEASE_CATEGORY}/${params.ZOWE_RELEASE_VERSION}' ] && exit 1
 exit 0
 EOF""", returnStatus:true)
-        if ("${status}" == "1") {
+        if ("${versionOnPublishDir}" == "1") {
         error "Zowe version ${params.ZOWE_RELEASE_VERSION} already exists (${params.PUBLISH_DIRECTORY}/${params.ZOWE_RELEASE_CATEGORY}/${params.ZOWE_RELEASE_VERSION})"
         }
       }
