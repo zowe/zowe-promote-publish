@@ -125,22 +125,12 @@ node ('ibm-jenkins-slave-nvm') {
   currentBuild.result = 'SUCCESS'
 
   def releaseFilename = "zowe-${params.ZOWE_RELEASE_VERSION}.pax"
-  def releaseFileFull = "${params.ZOWE_RELEASE_REPOSITORY}${params.ZOWE_RELEASE_PATH}/${params.ZOWE_RELEASE_VERSION}/${releaseFilename}"
+  def releaseFilePath = "${params.ZOWE_RELEASE_REPOSITORY}${params.ZOWE_RELEASE_PATH}/${params.ZOWE_RELEASE_VERSION}"
+  def releaseFileFull = "${releaseFilePath}/${releaseFilename}"
 
   try {
 
-    stage('checkout') {
-      // checkout source code
-      checkout scm
-
-      // check if it's pull request
-      echo "Current branch is ${env.BRANCH_NAME}"
-      if (isPullRequest) {
-        echo "This is a pull request"
-      }
-    }
-
-    stage('promote') {
+    stage('validate') {
       if (!params.ZOWE_RELEASE_REPOSITORY) {
         error "ZOWE_RELEASE_REPOSITORY is required to promote build."
       }
@@ -157,11 +147,53 @@ node ('ibm-jenkins-slave-nvm') {
         error "ZOWE_RELEASE_VERSION is required to promote build."
       }
 
+      if (params.ZOWE_RELEASE_VERSION ==~ /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-((?:0|[1-9]\d*|\d*[a-zA-Z-][0-9a-zA-Z-]*)(?:\.(?:0|[1-9]\d*|\d*[a-zA-Z-][0-9a-zA-Z-]*))*))?(?:\+([0-9a-zA-Z-]+(?:\.[0-9a-zA-Z-]+)*))?$/) {
+        echo "Checking if ${params.ZOWE_RELEASE_VERSION} exists ..."
+      } else {
+        error "${params.ZOWE_RELEASE_VERSION} is not a valid semantic version."
+      }
+
       // prepare JFrog CLI configurations
       withCredentials([usernamePassword(credentialsId: params.ARTIFACTORY_SECRET, passwordVariable: 'PASSWORD', usernameVariable: 'USERNAME')]) {
         sh "jfrog rt config rt-server-1 --url=${params.ARTIFACTORY_URL} --user=${USERNAME} --password=${PASSWORD}"
       }
 
+      // check artifactory
+      def versionOnArtifactory = sh(
+        script: "jfrog rt s \"${releaseFilePath}/\"",
+        returnStdout: true
+      ).trim()
+      echo "Search result: ${versionOnArtifactory}"
+      if (versionOnArtifactory != '[]') {
+        error "Zowe version ${params.ZOWE_RELEASE_VERSION} already exists (${releaseFilePath})"
+      }
+
+      // check deploy target directory
+      withCredentials([usernamePassword(credentialsId: params.PUBLISH_SSH_CREDENTIAL, passwordVariable: 'PASSWORD', usernameVariable: 'USERNAME')]) {
+        // move to target folder, split and generate hash
+        def versionOnPublishDir = sh(script:"""SSHPASS=${PASSWORD} sshpass -e ssh -tt -o StrictHostKeyChecking=no -o PubkeyAuthentication=no -p ${params.PUBLISH_SSH_PORT} ${USERNAME}@${params.PUBLISH_SSH_HOST} << EOF
+[ -d '${params.PUBLISH_DIRECTORY}/${params.ZOWE_RELEASE_CATEGORY}/${params.ZOWE_RELEASE_VERSION}' ] && exit 1
+exit 0
+EOF""", returnStatus:true)
+        echo "Exit code: ${versionOnPublishDir}"
+        if ("${versionOnPublishDir}" == "1") {
+        error "Zowe version ${params.ZOWE_RELEASE_VERSION} already exists (${params.PUBLISH_DIRECTORY}/${params.ZOWE_RELEASE_CATEGORY}/${params.ZOWE_RELEASE_VERSION})"
+        }
+      }
+    }
+
+    stage('checkout') {
+      // checkout source code
+      checkout scm
+
+      // check if it's pull request
+      echo "Current branch is ${env.BRANCH_NAME}"
+      if (isPullRequest) {
+        echo "This is a pull request"
+      }
+    }
+
+    stage('promote') {
       // get build information
       def buildsInfoText = sh(
         script: "jfrog rt search --build=\"${params.ZOWE_BUILD_NAME}/${params.ZOWE_BUILD_NUMBER}\" ${params.ZOWE_BUILD_REPOSITORY}/*.pax",
