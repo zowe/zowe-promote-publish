@@ -158,7 +158,7 @@ node ('ibm-jenkins-slave-nvm') {
         returnStdout: true
       ).trim()
       if (versionOnArtifactory != '[]') {
-        error "Zowe version ${params.ZOWE_RELEASE_VERSION} already exists (${releaseFilePath})"
+        // error "Zowe version ${params.ZOWE_RELEASE_VERSION} already exists (${releaseFilePath})"
       }
 
       // check deploy target directory
