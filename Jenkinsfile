@@ -157,8 +157,9 @@ node ('ibm-jenkins-slave-nvm') {
         script: "jfrog rt s \"${releaseFilePath}/\"",
         returnStdout: true
       ).trim()
+      echo "Search result: ${versionOnArtifactory}"
       if (versionOnArtifactory != '[]') {
-        // error "Zowe version ${params.ZOWE_RELEASE_VERSION} already exists (${releaseFilePath})"
+        error "Zowe version ${params.ZOWE_RELEASE_VERSION} already exists (${releaseFilePath})"
       }
 
       // check deploy target directory
@@ -168,6 +169,7 @@ node ('ibm-jenkins-slave-nvm') {
 [ -d '${params.PUBLISH_DIRECTORY}/${params.ZOWE_RELEASE_CATEGORY}/${params.ZOWE_RELEASE_VERSION}' ] && exit 1
 exit 0
 EOF""", returnStatus:true)
+        echo "Exit code: ${versionOnPublishDir}"
         if ("${versionOnPublishDir}" == "1") {
         error "Zowe version ${params.ZOWE_RELEASE_VERSION} already exists (${params.PUBLISH_DIRECTORY}/${params.ZOWE_RELEASE_CATEGORY}/${params.ZOWE_RELEASE_VERSION})"
         }
