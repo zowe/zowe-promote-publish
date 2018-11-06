@@ -12,6 +12,7 @@
 
 def isPullRequest = env.BRANCH_NAME.startsWith('PR-')
 def slackChannel = '#test-build-notify'
+def zoweInstallPackagingRepo = 'zowe/zowe-install-packaging'
 
 def opts = []
 // keep last 20 builds for regular branches, no keep for pull requests
@@ -115,6 +116,27 @@ customParameters.push(string(
   trim: true,
   required: true
 ))
+customParameters.push(credentials(
+  name: 'GITHUB_CREDENTIALS',
+  description: 'Github user credentials',
+  credentialType: 'com.cloudbees.plugins.credentials.impl.UsernamePasswordCredentialsImpl',
+  defaultValue: 'zowe-robot-github',
+  required: true
+))
+customParameters.push(string(
+  name: 'GITHUB_USER_EMAIL',
+  description: 'github user email',
+  defaultValue: 'zowe.robot@gmail.com',
+  trim: true,
+  required: true
+))
+customParameters.push(string(
+  name: 'GITHUB_USER_NAME',
+  description: 'github user name',
+  defaultValue: 'Zowe Robot',
+  trim: true,
+  required: true
+))
 
 opts.push(parameters(customParameters))
 
@@ -127,6 +149,8 @@ node ('ibm-jenkins-slave-nvm') {
   def releaseFilename = "zowe-${params.ZOWE_RELEASE_VERSION}.pax"
   def releaseFilePath = "${params.ZOWE_RELEASE_REPOSITORY}${params.ZOWE_RELEASE_PATH}/${params.ZOWE_RELEASE_VERSION}"
   def releaseFileFull = "${releaseFilePath}/${releaseFilename}"
+  def isFormalRelease = false
+  def gitRevision = null
 
   try {
 
@@ -147,10 +171,15 @@ node ('ibm-jenkins-slave-nvm') {
         error "ZOWE_RELEASE_VERSION is required to promote build."
       }
 
+      // thanks semver/semver, this regular expression comes from
+      // https://github.com/semver/semver/issues/232#issuecomment-405596809
       if (params.ZOWE_RELEASE_VERSION ==~ /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-((?:0|[1-9]\d*|\d*[a-zA-Z-][0-9a-zA-Z-]*)(?:\.(?:0|[1-9]\d*|\d*[a-zA-Z-][0-9a-zA-Z-]*))*))?(?:\+([0-9a-zA-Z-]+(?:\.[0-9a-zA-Z-]+)*))?$/) {
         echo "Checking if ${params.ZOWE_RELEASE_VERSION} exists ..."
       } else {
         error "${params.ZOWE_RELEASE_VERSION} is not a valid semantic version."
+      }
+      if (params.ZOWE_RELEASE_VERSION ==~ /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/) {
+        isFormalRelease = true
       }
 
       // prepare JFrog CLI configurations
@@ -166,6 +195,20 @@ node ('ibm-jenkins-slave-nvm') {
       echo "Search result: ${versionOnArtifactory}"
       if (versionOnArtifactory != '[]') {
         error "Zowe version ${params.ZOWE_RELEASE_VERSION} already exists (${releaseFilePath})"
+      }
+
+      // check build info
+      withCredentials([usernamePassword(credentialsId: params.ARTIFACTORY_SECRET, passwordVariable: 'PASSWORD', usernameVariable: 'USERNAME')]) {
+        // FIXME: this could be risky if build name including non-ASCII characters
+        def encodedBuildName = params.ZOWE_BUILD_NAME.replace(' ', '%20')
+        gitRevision = sh(
+          script: "curl -u \"${USERNAME}:${PASSWORD}\" -sS \"${params.ARTIFACTORY_URL}/api/build/${encodedBuildName}/${params.ZOWE_BUILD_NUMBER}\" | jq \".buildInfo.vcsRevision\"",
+          returnStdout: true
+        ).trim()
+        gitRevision = gitRevision.replace('"', '')
+        if (!(gitRevision ==~ /^[0-9a-fA-F]{40}$/)) { // if it's a SHA-1 commit hash
+          error "Cannot extract git revision from build \"${params.ZOWE_BUILD_NAME}/${params.ZOWE_BUILD_NUMBER}\""
+        }
       }
 
       // check deploy target directory
@@ -257,6 +300,31 @@ EOF""", returnStatus:true)
       echo "===================== File properties ===================== "
       echo props.join("\n")
       sh "jfrog rt set-props \"${releaseFileFull}\" \"" + props.join(';') + "\""
+    }
+
+    utils.conditionalStage('tag', isFormalRelease) {
+      // tag the repositories for a formal release
+      sh """
+        git config --global user.email \"${params.GITHUB_USER_EMAIL}\"
+        git config --global user.name \"${params.GITHUB_USER_NAME}\"
+      """
+      withCredentials([usernamePassword(
+        credentialsId: params.GITHUB_CREDENTIALS,
+        passwordVariable: 'GIT_PASSWORD',
+        usernameVariable: 'GIT_USERNAME'
+      )]) {
+        // tag zowe-install-packaging repository
+        sh """
+        mkdir .zowe-install-packaging
+        cd .zowe-install-packaging
+        git init
+        git remote add origin https://github.com/${zoweInstallPackagingRepo}.git
+        git fetch origin ${gitRevision}
+        git reset --hard FETCH_HEAD
+        git tag v${params.ZOWE_RELEASE_VERSION}
+        git push --tags 'https://${GIT_USERNAME}:${GIT_PASSWORD}@github.com/${zoweInstallPackagingRepo}.git'
+        """
+      }
     }
 
     stage('publish') {
