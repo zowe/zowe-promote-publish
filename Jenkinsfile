@@ -173,14 +173,17 @@ node ('ibm-jenkins-slave-nvm') {
 
       // thanks semver/semver, this regular expression comes from
       // https://github.com/semver/semver/issues/232#issuecomment-405596809
-      if (params.ZOWE_RELEASE_VERSION ==~ /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-((?:0|[1-9]\d*|\d*[a-zA-Z-][0-9a-zA-Z-]*)(?:\.(?:0|[1-9]\d*|\d*[a-zA-Z-][0-9a-zA-Z-]*))*))?(?:\+([0-9a-zA-Z-]+(?:\.[0-9a-zA-Z-]+)*))?$/) {
-        echo "Checking if ${params.ZOWE_RELEASE_VERSION} exists ..."
-      } else {
+      if (!(params.ZOWE_RELEASE_VERSION ==~ /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-((?:0|[1-9]\d*|\d*[a-zA-Z-][0-9a-zA-Z-]*)(?:\.(?:0|[1-9]\d*|\d*[a-zA-Z-][0-9a-zA-Z-]*))*))?(?:\+([0-9a-zA-Z-]+(?:\.[0-9a-zA-Z-]+)*))?$/)) {
         error "${params.ZOWE_RELEASE_VERSION} is not a valid semantic version."
       }
       if (params.ZOWE_RELEASE_VERSION ==~ /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/) {
         isFormalRelease = true
+        echo ">>>> Version ${params.ZOWE_RELEASE_VERSION} is considered as a FORMAL RELEASE."
+      } else {
+        echo ">>>> Version ${params.ZOWE_RELEASE_VERSION} is NOT considered as a FORMAL RELEASE."
       }
+
+      echo "Checking if ${params.ZOWE_RELEASE_VERSION} already exists ..."
 
       // prepare JFrog CLI configurations
       withCredentials([usernamePassword(credentialsId: params.ARTIFACTORY_SECRET, passwordVariable: 'PASSWORD', usernameVariable: 'USERNAME')]) {
@@ -195,6 +198,8 @@ node ('ibm-jenkins-slave-nvm') {
       echo "Search result: ${versionOnArtifactory}"
       if (versionOnArtifactory != '[]') {
         error "Zowe version ${params.ZOWE_RELEASE_VERSION} already exists (${releaseFilePath})"
+      } else {
+        echo ">>>> Target artifactory folder doesn't exist, may proceed."
       }
 
       // check build info
@@ -209,6 +214,7 @@ node ('ibm-jenkins-slave-nvm') {
         if (!(gitRevision ==~ /^[0-9a-fA-F]{40}$/)) { // if it's a SHA-1 commit hash
           error "Cannot extract git revision from build \"${params.ZOWE_BUILD_NAME}/${params.ZOWE_BUILD_NUMBER}\""
         }
+        echo ">>>> Build ${params.ZOWE_BUILD_NAME}/${params.ZOWE_BUILD_NUMBER} commit hash is ${gitRevision}, may proceed."
       }
 
       // check deploy target directory
@@ -220,7 +226,9 @@ exit 0
 EOF""", returnStatus:true)
         echo "Exit code: ${versionOnPublishDir}"
         if ("${versionOnPublishDir}" == "1") {
-        error "Zowe version ${params.ZOWE_RELEASE_VERSION} already exists (${params.PUBLISH_DIRECTORY}/${params.ZOWE_RELEASE_CATEGORY}/${params.ZOWE_RELEASE_VERSION})"
+          error "Zowe version ${params.ZOWE_RELEASE_VERSION} already exists (${params.PUBLISH_DIRECTORY}/${params.ZOWE_RELEASE_CATEGORY}/${params.ZOWE_RELEASE_VERSION})"
+        } else {
+          echo ">>>> Target publish folder doesn't exist, may proceed."
         }
       }
     }
@@ -319,8 +327,8 @@ EOF""", returnStatus:true)
         cd .zowe-install-packaging
         git init
         git remote add origin https://github.com/${zoweInstallPackagingRepo}.git
-        git fetch origin ${gitRevision}
-        git reset --hard FETCH_HEAD
+        git fetch origin
+        git checkout ${gitRevision}
         git tag v${params.ZOWE_RELEASE_VERSION}
         git push --tags 'https://${GIT_USERNAME}:${GIT_PASSWORD}@github.com/${zoweInstallPackagingRepo}.git'
         """
