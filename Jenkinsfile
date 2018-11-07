@@ -53,10 +53,15 @@ customParameters.push(string(
 ))
 customParameters.push(string(
   name: 'ZOWE_BUILD_NUMBER',
-  description: 'REQUIRED. Zowe successful build number',
+  description: 'REQUIRED if ZOWE_BUILD_RC_PATH is empty. Zowe successful build number',
   defaultValue: '',
-  trim: true,
-  required: true
+  trim: true
+))
+customParameters.push(string(
+  name: 'ZOWE_BUILD_RC_PATH',
+  description: 'REQUIRED if ZOWE_BUILD_NUMBER is empty. Zowe RC build artifactory download path. If the build original file has been removed from artifactory, we can promote any existing file. Example: libs-release-local/org/zowe/0.9.3-RC2/zowe-0.9.3-RC2.pax',
+  defaultValue: '',
+  trim: true
 ))
 customParameters.push(string(
   name: 'ZOWE_RELEASE_REPOSITORY',
@@ -137,8 +142,8 @@ node ('ibm-jenkins-slave-nvm') {
       if (!params.ZOWE_BUILD_NAME) {
         error "ZOWE_BUILD_NAME is required to promote build."
       }
-      if (!params.ZOWE_BUILD_NUMBER) {
-        error "ZOWE_BUILD_NUMBER is required to promote build."
+      if (!params.ZOWE_BUILD_NUMBER && !params.ZOWE_BUILD_RC_PATH) {
+        error "ZOWE_BUILD_NUMBER or ZOWE_BUILD_RC_PATH is required to promote build."
       }
       if (!params.ZOWE_RELEASE_CATEGORY) {
         error "ZOWE_RELEASE_CATEGORY is required to promote build."
@@ -195,10 +200,20 @@ EOF""", returnStatus:true)
 
     stage('promote') {
       // get build information
+      def artifactorySearch = ""
+      if (params.ZOWE_BUILD_NUMBER) {
+        artifactorySearch = "--build=\"${params.ZOWE_BUILD_NAME}/${params.ZOWE_BUILD_NUMBER}\" ${params.ZOWE_BUILD_REPOSITORY}/*.pax"
+      } else if (params.ZOWE_BUILD_RC_PATH) {
+        artifactorySearch = "\"${params.ZOWE_BUILD_RC_PATH}\""
+      } else {
+        error "No file to promote"
+      }
       def buildsInfoText = sh(
-        script: "jfrog rt search --build=\"${params.ZOWE_BUILD_NAME}/${params.ZOWE_BUILD_NUMBER}\" ${params.ZOWE_BUILD_REPOSITORY}/*.pax",
+        script: "jfrog rt search ${artifactorySearch}",
         returnStdout: true
       ).trim()
+      echo "Build/file search result:"
+      echo buildsInfoText
       /**
        * Example result:
        *
@@ -218,10 +233,18 @@ EOF""", returnStatus:true)
       def buildsInfo = readJSON text: buildsInfoText
       def buildSize = buildsInfo.size()
       if (buildSize < 1) {
-        error "Cannot find build \"${params.ZOWE_BUILD_NAME}/${params.ZOWE_BUILD_NUMBER}\""
+        if (params.ZOWE_BUILD_NUMBER) {
+          error "Cannot find build \"${params.ZOWE_BUILD_NAME}/${params.ZOWE_BUILD_NUMBER}\""
+        } else if (params.ZOWE_BUILD_RC_PATH) {
+          error "Cannot find file \"${params.ZOWE_BUILD_RC_PATH}\""
+        }
       }
       if (buildSize > 1) {
-        error "Found ${buildSize} builds for \"${params.ZOWE_BUILD_NAME}/${params.ZOWE_BUILD_NUMBER}\""
+        if (params.ZOWE_BUILD_NUMBER) {
+          error "Found ${buildSize} builds for \"${params.ZOWE_BUILD_NAME}/${params.ZOWE_BUILD_NUMBER}\""
+        } else if (params.ZOWE_BUILD_RC_PATH) {
+          error "Found ${buildSize} files for \"${params.ZOWE_BUILD_RC_PATH}\""
+        }
       }
       def buildInfo = buildsInfo.first()
       if (!buildInfo || !buildInfo.path) {
@@ -236,7 +259,27 @@ EOF""", returnStatus:true)
       if (buildTimestamp.getClass().toString().endsWith('JSONArray')) {
         buildTimestamp = buildTimestamp.get(0)
       }
-      echo "Build \"${params.ZOWE_BUILD_NAME}/${params.ZOWE_BUILD_NUMBER}\":"
+      // get original build name/number
+      def buildName = buildInfo.props.get('build.name')
+      if (buildName.getClass().toString().endsWith('JSONArray')) {
+        buildName = buildName.get(0)
+      }
+      def buildNumber = buildInfo.props.get('build.number')
+      if (buildNumber.getClass().toString().endsWith('JSONArray')) {
+        buildNumber = buildNumber.get(0)
+      }
+      if (buildName.contains('zowe-promote-publish')) {
+        // find parent build
+        buildName = buildInfo.props.get('build.parentName')
+        if (buildName.getClass().toString().endsWith('JSONArray')) {
+          buildName = buildName.get(0)
+        }
+        buildNumber = buildInfo.props.get('build.parentNumber')
+        if (buildNumber.getClass().toString().endsWith('JSONArray')) {
+          buildNumber = buildNumber.get(0)
+        }
+      }
+      echo "Build \"${buildName}/${buildNumber}\":"
       echo "- pax path       : ${buildInfo.path}"
       echo "- build timestamp: ${buildTimestamp}"
 
@@ -251,8 +294,8 @@ EOF""", returnStatus:true)
       def currentBuildName = env.JOB_NAME.replace('/', ' :: ')
       props << "build.name=${currentBuildName}"
       props << "build.number=${env.BUILD_NUMBER}"
-      props << "build.parentName=${params.ZOWE_BUILD_NAME}"
-      props << "build.parentNumber=${params.ZOWE_BUILD_NUMBER}"
+      props << "build.parentName=${buildName}"
+      props << "build.parentNumber=${buildNumber}"
       props << "build.timestamp=${buildTimestamp}"
       echo "===================== File properties ===================== "
       echo props.join("\n")
