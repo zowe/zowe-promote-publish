@@ -212,6 +212,8 @@ EOF""", returnStatus:true)
         script: "jfrog rt search ${artifactorySearch}",
         returnStdout: true
       ).trim()
+      echo "Build/file search result:"
+      echo buildsInfoText
       /**
        * Example result:
        *
@@ -266,7 +268,7 @@ EOF""", returnStatus:true)
       if (buildNumber.getClass().toString().endsWith('JSONArray')) {
         buildNumber = buildNumber.get(0)
       }
-      if (buildName ==~ /zowe-promote-publish/) {
+      if (buildName.contains('zowe-promote-publish')) {
         // find parent build
         buildName = buildInfo.props.get('build.parentName')
         if (buildName.getClass().toString().endsWith('JSONArray')) {
