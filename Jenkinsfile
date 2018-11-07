@@ -251,19 +251,31 @@ EOF""", returnStatus:true)
 
       // extract build information
       def buildTimestamp = buildInfo.props.get('build.timestamp')
-      // get original build name/number
-      def buildName = buildInfo.props.get('build.name')
-      def buildNumber = buildInfo.props.get('build.number')
-      if (buildName ==~ /zowe-promote-publish/) {
-        // find parent build
-        buildName = buildInfo.props.get('build.parentName')
-        buildNumber = buildInfo.props.get('build.parentNumber')
-      }
       // think this should be a bug
       // readJSON returns buildTimestamp as net.sf.json.JSONArray
       // this step is a workaround
       if (buildTimestamp.getClass().toString().endsWith('JSONArray')) {
         buildTimestamp = buildTimestamp.get(0)
+      }
+      // get original build name/number
+      def buildName = buildInfo.props.get('build.name')
+      if (buildName.getClass().toString().endsWith('JSONArray')) {
+        buildName = buildName.get(0)
+      }
+      def buildNumber = buildInfo.props.get('build.number')
+      if (buildNumber.getClass().toString().endsWith('JSONArray')) {
+        buildNumber = buildNumber.get(0)
+      }
+      if (buildName ==~ /zowe-promote-publish/) {
+        // find parent build
+        buildName = buildInfo.props.get('build.parentName')
+        if (buildName.getClass().toString().endsWith('JSONArray')) {
+          buildName = buildName.get(0)
+        }
+        buildNumber = buildInfo.props.get('build.parentNumber')
+        if (buildNumber.getClass().toString().endsWith('JSONArray')) {
+          buildNumber = buildNumber.get(0)
+        }
       }
       echo "Build \"${buildName}/${buildNumber}\":"
       echo "- pax path       : ${buildInfo.path}"
