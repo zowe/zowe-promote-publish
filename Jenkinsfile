@@ -400,10 +400,16 @@ EOF"""
     }
 
     stage('done') {
+      def source = ""
+      if (params.ZOWE_BUILD_NUMBER) {
+        source = "Build #${params.ZOWE_BUILD_NUMBER}"
+      } else if (params.ZOWE_BUILD_RC_PATH) {
+        source = "File \"${params.ZOWE_BUILD_RC_PATH}\""
+      }
       def successMsg = """
 *************************************************************************************************
 
-Build #${buildNumber} is promoted as "${params.ZOWE_RELEASE_VERSION}", you can download from:
+${source} is promoted as Zowe v"${params.ZOWE_RELEASE_VERSION}", you can download from:
 
 ${params.ARTIFACTORY_URL}/${releaseFileFull}
 or:
