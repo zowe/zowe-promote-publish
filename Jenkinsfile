@@ -400,8 +400,21 @@ EOF"""
     }
 
     stage('done') {
+      def successMsg = """
+*************************************************************************************************
+
+Build #${buildNumber} is promoted as "${params.ZOWE_RELEASE_VERSION}", you can download from:
+
+${params.ARTIFACTORY_URL}/${releaseFileFull}
+or:
+https://projectgiza.org/builds/${params.ZOWE_RELEASE_CATEGORY}/${params.ZOWE_RELEASE_VERSION}/zowe-${params.ZOWE_RELEASE_VERSION}.pax
+
+*************************************************************************************************
+      """
+      echo successMsg
+
       emailext body: "Job \"${env.JOB_NAME}\" build #${env.BUILD_NUMBER} succeeded.\n\nCheck detail: ${env.BUILD_URL}" ,
-          subject: "[Jenkins] Job \"${env.JOB_NAME}\" build #${env.BUILD_NUMBER} succeeded",
+          subject: "[Jenkins] Job \"${env.JOB_NAME}\" build #${env.BUILD_NUMBER} succeeded\n\n${successMsg}",
           recipientProviders: [
             [$class: 'RequesterRecipientProvider'],
             [$class: 'CulpritsRecipientProvider'],
