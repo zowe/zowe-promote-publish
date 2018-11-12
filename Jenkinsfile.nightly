@@ -1,0 +1,337 @@
+#!groovy
+
+/**
+ * This program and the accompanying materials are made available under the terms of the
+ * Eclipse Public License v2.0 which accompanies this distribution, and is available at
+ * https://www.eclipse.org/legal/epl-v20.html
+ *
+ * SPDX-License-Identifier: EPL-2.0
+ *
+ * Copyright IBM Corporation 2018
+ */
+
+def slackChannel = '#zowe-build'
+
+def opts = []
+// keep last 20 builds for regular branches, no keep for pull requests
+opts.push(buildDiscarder(logRotator(numToKeepStr: '20')))
+// disable concurrent build
+opts.push(disableConcurrentBuilds())
+// run every night 11pm EST
+opts.push(pipelineTriggers([cron('''TZ=America/New_York
+H 23 * * *''')]))
+
+// define custom build parameters
+def customParameters = []
+// >>>>>>>> parameters to control pipeline behavior
+// >>>>>>>> parameters of artifactory
+customParameters.push(string(
+  name: 'ARTIFACTORY_URL',
+  description: 'Artifactory URL',
+  defaultValue: 'https://gizaartifactory.jfrog.io/gizaartifactory',
+  trim: true,
+  required: true
+))
+customParameters.push(credentials(
+  name: 'ARTIFACTORY_SECRET',
+  description: 'Artifactory access secret',
+  credentialType: 'com.cloudbees.plugins.credentials.impl.UsernamePasswordCredentialsImpl',
+  defaultValue: 'GizaArtifactory',
+  required: true
+))
+customParameters.push(string(
+  name: 'ZOWE_RELEASE_REPOSITORY',
+  description: 'Zowe release repository',
+  defaultValue: 'libs-release-local',
+  trim: true,
+  required: true
+))
+customParameters.push(string(
+  name: 'ZOWE_RELEASE_PATH',
+  description: 'Zowe release path',
+  defaultValue: '/org/zowe/nightly',
+  trim: true,
+  required: true
+))
+customParameters.push(string(
+  name: 'ZOWE_BUILD_NAME',
+  description: 'Artifactory build name which holds Zowe build list',
+  defaultValue: 'zowe-install-packaging :: master',
+  trim: true,
+  required: true
+))
+customParameters.push(string(
+  name: 'ZOWE_BUILD_REPOSITORY',
+  description: 'Zowe successful build repository',
+  defaultValue: 'libs-snapshot-local',
+  trim: true,
+  required: true
+))
+opts.push(parameters(customParameters))
+
+// set build properties
+properties(opts)
+
+node ('ibm-jenkins-slave-nvm') {
+  currentBuild.result = 'SUCCESS'
+
+  def sourceBuildInfo = null
+  def buildName = null
+  def buildNumber = null
+  def buildTimestamp = null
+  def targetFilePath = "${params.ZOWE_RELEASE_REPOSITORY}${params.ZOWE_RELEASE_PATH}"
+  def targetFullPath = null
+
+  try {
+
+    stage('checkout') {
+      // checkout source code
+      checkout scm
+    }
+
+    stage('validate') {
+      echo "Checking last build of \"${params.ZOWE_BUILD_NAME}\" ..."
+
+      // prepare JFrog CLI configurations
+      withCredentials([usernamePassword(credentialsId: params.ARTIFACTORY_SECRET, passwordVariable: 'PASSWORD', usernameVariable: 'USERNAME')]) {
+        sh "jfrog rt config rt-server-1 --url=${params.ARTIFACTORY_URL} --user=${USERNAME} --password=${PASSWORD}"
+      }
+
+      // check artifactory
+      def latestBuild = sh(
+        script: "jfrog rt search --build=\"${params.ZOWE_BUILD_NAME}\" \"${params.ZOWE_BUILD_REPOSITORY}/*\"",
+        returnStdout: true
+      ).trim()
+      echo "Latest build is: ${latestBuild}"
+      /**
+       * Example result:
+       *
+       * [
+       *   {
+       *     "path": "libs-snapshot-local/com/project/zowe/0.9.0-SNAPSHOT/zowe-0.9.0-20180918.163158-38.pax",
+       *     "props": {
+       *       "build.name": "zowe-install-packaging :: master",
+       *       "build.number": "38",
+       *       "build.timestamp": "1537287202277"
+       *     }
+       *   }
+       * ]
+       */
+      def buildsInfo = readJSON text: latestBuild
+      def buildSize = buildsInfo.size()
+      if (buildSize < 1) {
+        error "Cannot find latest build of \"${params.ZOWE_BUILD_NAME}\""
+      }
+      if (buildSize > 1) {
+        error "Found ${buildSize} builds for \"${params.ZOWE_BUILD_NAME}\""
+      }
+      def buildInfo = buildsInfo.first()
+      if (!buildInfo || !buildInfo.path) {
+        error "Failed to find build artifactory."
+      }
+
+      // extract build information
+      buildTimestamp = buildInfo.props.get('build.timestamp')
+      // think this should be a bug
+      // readJSON returns buildTimestamp as net.sf.json.JSONArray
+      // this step is a workaround
+      if (buildTimestamp.getClass().toString().endsWith('JSONArray')) {
+        buildTimestamp = buildTimestamp.get(0)
+      }
+      long buildTimestampInt = buildTimestamp as Long
+      def currentTimestamp = sh(script: 'date +"%s"', returnStdout: true).trim()
+      long currentTimestampInt = currentTimestamp as Long
+      def timeElapse = (currentTimestampInt * 1000 - buildTimestampInt) / (3600 * 1000)
+      echo "Build is ${timeElapse} hours ago"
+      if (timeElapse < 22) { // how many hours we consider it's too old?
+        echo "Will skip re-build."
+        sourceBuildInfo = buildInfo
+      } else {
+        echo "Will need to re-build."
+      }
+    }
+
+    stage('build') {
+      if (!sourceBuildInfo || !sourceBuildInfo.path) {
+        echo "Building new driver ..."
+
+        timeout(time: 1, unit: 'HOURS') {
+          // run build
+          try {
+            build job: '/zowe-install-packaging/master'
+          } catch (be) {
+            echo "Error: ${be}"
+            error "Failed to build a new Zowe driver"
+          }
+
+          // load build info
+          def latestBuild = sh(
+            script: "jfrog rt search --build=\"${params.ZOWE_BUILD_NAME}\" \"${params.ZOWE_BUILD_REPOSITORY}/*\"",
+            returnStdout: true
+          ).trim()
+          echo "Latest build is: ${latestBuild}"
+
+          def buildsInfo = readJSON text: latestBuild
+          def buildSize = buildsInfo.size()
+          if (buildSize < 1) {
+            error "Cannot find latest build of \"${params.ZOWE_BUILD_NAME}\""
+          }
+          if (buildSize > 1) {
+            error "Found ${buildSize} builds for \"${params.ZOWE_BUILD_NAME}\""
+          }
+          def buildInfo = buildsInfo.first()
+          if (!buildInfo || !buildInfo.path) {
+            error "Failed to find build artifactory."
+          }
+          sourceBuildInfo = buildInfo
+        }
+      }
+    }
+
+    stage('test') {
+      // quit pipeline if no build found
+      if (!sourceBuildInfo || !sourceBuildInfo.path) {
+        error "Failed to find latest build"
+      }
+
+      timeout(time: 3, unit: 'HOURS') {
+        // skip test for testing the pipeline
+        try {
+          build job: '/zowe-install-test/master',
+            parameters: [
+              string(name: 'ZOWE_ARTIFACTORY_PATTERN', value: sourceBuildInfo.path),
+              string(name: 'ZOWE_ARTIFACTORY_BUILD', value: '')
+            ]
+        } catch (te) {
+          echo "Error: ${te}"
+          error "Test failed on build ${sourceBuildInfo.path}"
+        }
+      }
+    }
+
+    stage('promote') {
+      // extract build information
+      buildTimestamp = sourceBuildInfo.props.get('build.timestamp')
+      // think this should be a bug
+      // readJSON returns buildTimestamp as net.sf.json.JSONArray
+      // this step is a workaround
+      if (buildTimestamp.getClass().toString().endsWith('JSONArray')) {
+        buildTimestamp = buildTimestamp.get(0)
+      }
+      // get original build name/number
+      buildName = sourceBuildInfo.props.get('build.name')
+      if (buildName.getClass().toString().endsWith('JSONArray')) {
+        buildName = buildName.get(0)
+      }
+      buildNumber = sourceBuildInfo.props.get('build.number')
+      if (buildNumber.getClass().toString().endsWith('JSONArray')) {
+        buildNumber = buildNumber.get(0)
+      }
+      // extract file name
+      def sourceFilenameTrunks = sourceBuildInfo.path.split('/')
+      if (sourceFilenameTrunks.size() < 1) {
+        error "Invalid artifact: ${sourceBuildInfo.path}"
+      }
+      def sourceFilename = sourceFilenameTrunks[-1]
+      targetFullPath = "${targetFilePath}/${sourceFilename}"
+
+      echo "Build \"${buildName}/${buildNumber}\":"
+      echo "- pax path       : ${sourceBuildInfo.path}"
+      echo "- build timestamp: ${buildTimestamp}"
+
+      // copy artifact
+      echo "===================== Promoting (copying) ===================== "
+      echo "- from: ${sourceBuildInfo.path}"
+      echo "-   to: ${targetFullPath}"
+      def promoteResult = sh(
+        script: "jfrog rt copy --flat \"${sourceBuildInfo.path}\" \"${targetFullPath}\"",
+        returnStdout: true
+      ).trim()
+      echo "artifactory promote result:"
+      echo promoteResult
+      def promoteResultObject = readJSON(text: promoteResult)
+      if (promoteResultObject['status'] != 'success' ||
+          promoteResultObject['totals']['success'] != 1 || promoteResultObject['totals']['failure'] != 0) {
+        error "Failed on verifying promote result"
+      } else {
+        echo "promote result is successful as expected"
+      }
+
+      // update file property
+      def props = []
+      def currentBuildName = env.JOB_NAME.replace('/', ' :: ')
+      props << "build.name=${currentBuildName}"
+      props << "build.number=${env.BUILD_NUMBER}"
+      props << "build.parentName=${buildName}"
+      props << "build.parentNumber=${buildNumber}"
+      props << "build.timestamp=${buildTimestamp}"
+      echo "===================== File properties ===================== "
+      echo props.join("\n")
+      def setPropsResult = sh(
+        script: "jfrog rt set-props \"${targetFullPath}\" \"" + props.join(';') + "\"",
+        returnStdout: true
+      ).trim()
+      echo "artifactory set-props result:"
+      echo setPropsResult
+      def setPropsResultObject = readJSON(text: setPropsResult)
+      if (setPropsResultObject['status'] != 'success' ||
+          setPropsResultObject['totals']['success'] != 1 || setPropsResultObject['totals']['failure'] != 0) {
+        error "Failed on verifying set-props result"
+      } else {
+        echo "set-props result is successful as expected"
+      }
+    }
+
+    stage('done') {
+      def successMsg = """
+*************************************************************************************************
+
+Build #${buildNumber} is promoted as nightly build.
+
+You can download from:
+
+${params.ARTIFACTORY_URL}/${targetFullPath}
+
+*************************************************************************************************
+      """
+      echo successMsg
+
+      echo "Slack message"
+      echo "Build #${buildNumber} is promoted as nightly build.\n\nDownload URL:\n${params.ARTIFACTORY_URL}/${targetFullPath}\n\nCheck pipeline detail: ${env.BUILD_URL}"
+
+      // slackSend channel: slackChannel,
+      //           color: 'good',
+      //           message: "Build #${buildNumber} is promoted as nightly build.\n\nDownload URL:\n${params.ARTIFACTORY_URL}/${targetFullPath}\n\nCheck pipeline detail: ${env.BUILD_URL}"
+
+      emailext body: "Job \"${env.JOB_NAME}\" build #${env.BUILD_NUMBER} succeeded.\n\nCheck detail: ${env.BUILD_URL}" ,
+          subject: "[Jenkins] Job \"${env.JOB_NAME}\" build #${env.BUILD_NUMBER} succeeded\n\n${successMsg}",
+          recipientProviders: [
+            [$class: 'RequesterRecipientProvider'],
+            [$class: 'CulpritsRecipientProvider'],
+            [$class: 'DevelopersRecipientProvider'],
+            [$class: 'UpstreamComitterRecipientProvider']
+          ]
+    }
+
+  } catch (err) {
+    currentBuild.result = 'FAILURE'
+
+    // catch all failures to send out notification
+    // slackSend channel: slackChannel,
+    //           color: 'warning',
+    //           message: "Promote nightly build failed.\n\nError: ${err}\n\nCheck pipeline detail: ${env.BUILD_URL}"
+    echo "Slack message"
+    echo "Promote nightly build failed.\n\nError: ${err}\n\nCheck pipeline detail: ${env.BUILD_URL}"
+
+    emailext body: "Job \"${env.JOB_NAME}\" build #${env.BUILD_NUMBER} failed.\n\nError: ${err}\n\nCheck detail: ${env.BUILD_URL}" ,
+        subject: "[Jenkins] Job \"${env.JOB_NAME}\" build #${env.BUILD_NUMBER} failed",
+        recipientProviders: [
+          [$class: 'RequesterRecipientProvider'],
+          [$class: 'CulpritsRecipientProvider'],
+          [$class: 'DevelopersRecipientProvider'],
+          [$class: 'UpstreamComitterRecipientProvider']
+        ]
+
+    throw err
+  }
+}
