@@ -15,7 +15,6 @@ def zoweReleaseRepository = 'libs-release-local'
 def zoweReleasePath = '/org/zowe/nightly'
 def zoweBuildName = 'zowe-install-packaging :: master'
 def zoweBuildRepository = 'libs-snapshot-local'
-def emailNotificationRecipients = 'jack-tiefeng.jia@ibm.com'
 
 def opts = []
 // keep last 20 builds for regular branches, no keep for pull requests
@@ -283,7 +282,12 @@ ${params.ARTIFACTORY_URL}/${targetFullPath}
 
       emailext body: "Job \"${env.JOB_NAME}\" build #${env.BUILD_NUMBER} succeeded.\n\nCheck detail: ${env.BUILD_URL}" ,
           subject: "[Jenkins] Job \"${env.JOB_NAME}\" build #${env.BUILD_NUMBER} succeeded\n\n${successMsg}",
-          to: emailNotificationRecipients
+          recipientProviders: [
+            [$class: 'RequesterRecipientProvider'],
+            [$class: 'CulpritsRecipientProvider'],
+            [$class: 'DevelopersRecipientProvider'],
+            [$class: 'UpstreamComitterRecipientProvider']
+          ]
     }
 
   } catch (err) {
@@ -298,7 +302,12 @@ ${params.ARTIFACTORY_URL}/${targetFullPath}
 
     emailext body: "Job \"${env.JOB_NAME}\" build #${env.BUILD_NUMBER} failed.\n\nError: ${err}\n\nCheck detail: ${env.BUILD_URL}" ,
         subject: "[Jenkins] Job \"${env.JOB_NAME}\" build #${env.BUILD_NUMBER} failed",
-        to: emailNotificationRecipients
+        recipientProviders: [
+          [$class: 'RequesterRecipientProvider'],
+          [$class: 'CulpritsRecipientProvider'],
+          [$class: 'DevelopersRecipientProvider'],
+          [$class: 'UpstreamComitterRecipientProvider']
+        ]
 
     throw err
   }
