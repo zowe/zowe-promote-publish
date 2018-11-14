@@ -177,7 +177,8 @@ node ('ibm-jenkins-slave-nvm') {
           build job: '/zowe-install-test/master',
             parameters: [
               string(name: 'ZOWE_ARTIFACTORY_PATTERN', value: sourceBuildInfo.path),
-              string(name: 'ZOWE_ARTIFACTORY_BUILD', value: '')
+              string(name: 'ZOWE_ARTIFACTORY_BUILD', value: ''),
+              string(name: 'TEST_CASE_DEBUG_INFORMATION', value: 'test:*')
             ]
         } catch (te) {
           echo "Error: ${te}"
