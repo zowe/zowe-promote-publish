@@ -108,6 +108,10 @@ node ('ibm-jenkins-slave-nvm') {
       }
 
       // extract build information
+      buildNumber = buildInfo.props.get('build.number')
+      if (buildNumber.getClass().toString().endsWith('JSONArray')) {
+        buildNumber = buildNumber.get(0)
+      }
       buildTimestamp = buildInfo.props.get('build.timestamp')
       // think this should be a bug
       // readJSON returns buildTimestamp as net.sf.json.JSONArray
@@ -119,7 +123,7 @@ node ('ibm-jenkins-slave-nvm') {
       def currentTimestamp = sh(script: 'date +"%s"', returnStdout: true).trim()
       long currentTimestampInt = currentTimestamp as Long
       def timeElapse = (currentTimestampInt * 1000 - buildTimestampInt) / (3600 * 1000)
-      echo "Build is ${timeElapse} hours ago"
+      echo "Build #${buildNumber} is ${timeElapse} hours ago"
       if (timeElapse < 22) { // how many hours we consider it's too old?
         echo "Will skip re-build."
         sourceBuildInfo = buildInfo
@@ -302,7 +306,7 @@ Check pipeline detail: ${env.BUILD_URL}
       //           message: slackMessage
 
       emailext body: "Job \"${env.JOB_NAME}\" build #${env.BUILD_NUMBER} succeeded.\n\nCheck detail: ${env.BUILD_URL}" ,
-          subject: "[Jenkins] Job \"${env.JOB_NAME}\" build #${env.BUILD_NUMBER} succeeded\n\n${successMsg}",
+          subject: "[Jenkins] Job \"${env.JOB_NAME}\" build #${env.BUILD_NUMBER} succeeded\n\n${message}",
           recipientProviders: [
             [$class: 'RequesterRecipientProvider'],
             [$class: 'CulpritsRecipientProvider'],
