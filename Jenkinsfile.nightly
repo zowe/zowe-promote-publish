@@ -278,8 +278,7 @@ ${params.ARTIFACTORY_URL}/${targetFullPath}
         slackColor = 'warning'
         message = """
 ${message}
-
-!!WARNING!! smoke test FAILED on the build! Check test result here:
+!!WARNING!! Smoke test FAILED on the build! Check test result here:
 
 ${testBuildErrorUrl}
 """
@@ -287,23 +286,14 @@ ${testBuildErrorUrl}
 
       echo """
 *************************************************************************************************
-
 ${message}
-
 *************************************************************************************************
 """
-      def slackMessage = """
-${message}
 
-Check pipeline detail: ${env.BUILD_URL}
-"""
-
-      echo "Slack message"
-      echo "slackColor: ${slackColor}\n\n${slackMessage}"
-
-      // slackSend channel: slackChannel,
-      //           color: slackColor,
-      //           message: slackMessage
+      def slackMessage = "${message}\nCheck pipeline detail: ${env.BUILD_URL}"
+      slackSend channel: slackChannel,
+                color: slackColor,
+                message: slackMessage
 
       emailext body: "Job \"${env.JOB_NAME}\" build #${env.BUILD_NUMBER} succeeded.\n\nCheck detail: ${env.BUILD_URL}" ,
           subject: "[Jenkins] Job \"${env.JOB_NAME}\" build #${env.BUILD_NUMBER} succeeded\n\n${message}",
@@ -320,19 +310,10 @@ Check pipeline detail: ${env.BUILD_URL}
 
     // catch all failures to send out notification
     def slackColor = 'warning'
-    def slackMessage = """
-Promote nightly build failed.
-
-Error: ${err}
-
-Check pipeline detail: ${env.BUILD_URL}
-"""
-    echo "Slack message"
-    echo "slackColor: ${slackColor}\n\n${slackMessage}"
-
-    // slackSend channel: slackChannel,
-    //           color: slackColor,
-    //           message: slackMessage
+    def slackMessage = "Promote nightly build failed.\n\nError: ${err}\n\nCheck pipeline detail: ${env.BUILD_URL}"
+    slackSend channel: slackChannel,
+              color: slackColor,
+              message: slackMessage
 
     emailext body: "Job \"${env.JOB_NAME}\" build #${env.BUILD_NUMBER} failed.\n\nError: ${err}\n\nCheck detail: ${env.BUILD_URL}" ,
         subject: "[Jenkins] Job \"${env.JOB_NAME}\" build #${env.BUILD_NUMBER} failed",
