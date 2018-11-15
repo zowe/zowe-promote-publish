@@ -57,6 +57,7 @@ node ('ibm-jenkins-slave-nvm') {
   def buildTimestamp = null
   def targetFilePath = "${zoweReleaseRepository}${zoweReleasePath}"
   def targetFullPath = null
+  def testBuildErrorUrl = ""
 
   try {
 
@@ -133,11 +134,10 @@ node ('ibm-jenkins-slave-nvm') {
 
         timeout(time: 1, unit: 'HOURS') {
           // run build
-          try {
-            build job: '/zowe-install-packaging/master'
-          } catch (be) {
-            echo "Error: ${be}"
-            error "Failed to build a new Zowe driver"
+          def build_result = build(job: '/zowe-install-packaging/master', propagate: false)
+          echo "Build result: ${build_result.result}"
+          if (build_result.result != 'SUCCESS') {
+            error "Failed to build a new Zowe driver, check failure details at ${build_result.absoluteUrl}"
           }
 
           // load build info
@@ -172,16 +172,20 @@ node ('ibm-jenkins-slave-nvm') {
 
       timeout(time: 3, unit: 'HOURS') {
         // skip test for testing the pipeline
-        try {
-          build job: '/zowe-install-test/master',
+        def test_result = build(
+            job: '/zowe-install-test/master',
             parameters: [
+              booleanParam(name: 'SKIP_RESET_IMAGE', value: true),
               string(name: 'ZOWE_ARTIFACTORY_PATTERN', value: sourceBuildInfo.path),
               string(name: 'ZOWE_ARTIFACTORY_BUILD', value: ''),
               string(name: 'TEST_CASE_DEBUG_INFORMATION', value: 'test:*')
-            ]
-        } catch (te) {
-          echo "Error: ${te}"
-          error "Test failed on build ${sourceBuildInfo.path}"
+            ],
+            propagate: false
+          )
+        echo "Test result: ${test_result.result}"
+        if (test_result.result != 'SUCCESS') {
+          testBuildErrorUrl = test_result.absoluteUrl
+          echo "Test failed on build ${sourceBuildInfo.path}, check failure details at ${test_result.absoluteUrl}"
         }
       }
     }
@@ -260,25 +264,42 @@ node ('ibm-jenkins-slave-nvm') {
     }
 
     stage('done') {
-      def successMsg = """
-*************************************************************************************************
-
-Build #${buildNumber} is promoted as nightly build.
-
-You can download from:
+      def slackColor = 'good'
+      def message = """
+Build #${buildNumber} is promoted as nightly build. You can download from:
 
 ${params.ARTIFACTORY_URL}/${targetFullPath}
+"""
+      if (testBuildErrorUrl) {
+        slackColor = 'warning'
+        message = """
+${message}
+
+!!WARNING!! smoke test FAILED on the build! Check test result here:
+
+${testBuildErrorUrl}
+"""
+      }
+
+      echo """
+*************************************************************************************************
+
+${message}
 
 *************************************************************************************************
-      """
-      echo successMsg
+"""
+      def slackMessage = """
+${message}
+
+Check pipeline detail: ${env.BUILD_URL}
+"""
 
       echo "Slack message"
-      echo "Build #${buildNumber} is promoted as nightly build.\n\nDownload URL:\n${params.ARTIFACTORY_URL}/${targetFullPath}\n\nCheck pipeline detail: ${env.BUILD_URL}"
+      echo "slackColor: ${slackColor}\n\n${slackMessage}"
 
       // slackSend channel: slackChannel,
-      //           color: 'good',
-      //           message: "Build #${buildNumber} is promoted as nightly build.\n\nDownload URL:\n${params.ARTIFACTORY_URL}/${targetFullPath}\n\nCheck pipeline detail: ${env.BUILD_URL}"
+      //           color: slackColor,
+      //           message: slackMessage
 
       emailext body: "Job \"${env.JOB_NAME}\" build #${env.BUILD_NUMBER} succeeded.\n\nCheck detail: ${env.BUILD_URL}" ,
           subject: "[Jenkins] Job \"${env.JOB_NAME}\" build #${env.BUILD_NUMBER} succeeded\n\n${successMsg}",
@@ -294,11 +315,20 @@ ${params.ARTIFACTORY_URL}/${targetFullPath}
     currentBuild.result = 'FAILURE'
 
     // catch all failures to send out notification
-    // slackSend channel: slackChannel,
-    //           color: 'warning',
-    //           message: "Promote nightly build failed.\n\nError: ${err}\n\nCheck pipeline detail: ${env.BUILD_URL}"
+    def slackColor = 'warning'
+    def slackMessage = """
+Promote nightly build failed.
+
+Error: ${err}
+
+Check pipeline detail: ${env.BUILD_URL}
+"""
     echo "Slack message"
-    echo "Promote nightly build failed.\n\nError: ${err}\n\nCheck pipeline detail: ${env.BUILD_URL}"
+    echo "slackColor: ${slackColor}\n\n${slackMessage}"
+
+    // slackSend channel: slackChannel,
+    //           color: slackColor,
+    //           message: slackMessage
 
     emailext body: "Job \"${env.JOB_NAME}\" build #${env.BUILD_NUMBER} failed.\n\nError: ${err}\n\nCheck detail: ${env.BUILD_URL}" ,
         subject: "[Jenkins] Job \"${env.JOB_NAME}\" build #${env.BUILD_NUMBER} failed",
