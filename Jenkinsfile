@@ -409,7 +409,7 @@ EOF"""
       def successMsg = """
 *************************************************************************************************
 
-${source} is promoted as Zowe v"${params.ZOWE_RELEASE_VERSION}", you can download from:
+${source} is promoted as Zowe v${params.ZOWE_RELEASE_VERSION}, you can download from:
 
 ${params.ARTIFACTORY_URL}/${releaseFileFull}
 or:
