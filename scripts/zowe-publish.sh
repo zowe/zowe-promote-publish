@@ -27,7 +27,7 @@ ZOWE_BUILD_DIRECTORY=$1
 ZOWE_BUILD_CATEGORY=$2
 ZOWE_BUILD_VERSION=$3
 ZOWE_BUILD_FILE=zowe-$ZOWE_BUILD_VERSION.pax
-ZOWE_CLI_BUNDLE=zowe-cli-bundle.zip
+ZOWE_CLI_PACKAGE=zowe-cli-package-$ZOWE_BUILD_VERSION.zip
 
 # test parameters
 if [ -z "$ZOWE_BUILD_DIRECTORY" ]; then
@@ -46,16 +46,16 @@ if [ ! -f $ZOWE_BUILD_FILE ]; then
   echo "Error: cannot find $ZOWE_BUILD_FILE"
   exit 1
 fi
+if [ ! -f $ZOWE_CLI_PACKAGE ]; then 
+  echo "Error: cannot find $ZOWE_CLI_PACKAGE"
+  exit 1
+fi
 
 # move Zowe build to target folder
 echo "> move $ZOWE_BUILD_FILE to $ZOWE_BUILD_DIRECTORY/$ZOWE_BUILD_VERSION ..."
 mkdir -p $ZOWE_BUILD_DIRECTORY/$ZOWE_BUILD_CATEGORY/$ZOWE_BUILD_VERSION
 mv ~/$ZOWE_BUILD_FILE $ZOWE_BUILD_DIRECTORY/$ZOWE_BUILD_CATEGORY/$ZOWE_BUILD_VERSION
 cd $ZOWE_BUILD_DIRECTORY/$ZOWE_BUILD_CATEGORY/$ZOWE_BUILD_VERSION
-
-# extract cli bundle
-echo "> extract Zowe CLI bundle ..."
-pax -s ":.\+/files/::p" -rf "${ZOWE_BUILD_FILE}" "*/files/${ZOWE_CLI_BUNDLE}"
 
 # split into trunks
 echo "> split Zowe build ..."
@@ -75,7 +75,7 @@ echo "> generating hash for Zowe build ..."
 gpg --print-md SHA512 $ZOWE_BUILD_FILE > $ZOWE_BUILD_FILE.sha512
 # generate SHA512 hash for cli bundle
 echo "> generating hash for Zowe CLI bundle ..."
-gpg --print-md SHA512 $ZOWE_CLI_BUNDLE > $ZOWE_CLI_BUNDLE.sha512
+gpg --print-md SHA512 $ZOWE_CLI_PACKAGE > $ZOWE_CLI_PACKAGE.sha512
 
 echo "> generating version file ..."
 echo "$ZOWE_BUILD_VERSION" > version
