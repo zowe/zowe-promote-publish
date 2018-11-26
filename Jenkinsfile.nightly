@@ -48,7 +48,7 @@ customParameters.push(credentials(
 ))
 customParameters.push(booleanParam(
   name: 'TEST_RUN',
-  description: 'Test run will not send out Slack message.',
+  description: 'Test run will skip test cases and will not send out Slack message.',
   defaultValue: false
 ))
 opts.push(parameters(customParameters))
@@ -234,22 +234,34 @@ node ('ibm-jenkins-slave-nvm') {
 
       timeout(time: 3, unit: 'HOURS') {
         // skip test for testing the pipeline
-        def test_result = build(
-            job: '/zowe-install-test/master',
-            parameters: [
-              booleanParam(name: 'SKIP_RESET_IMAGE', value: true),
-              string(name: 'ZOWE_ARTIFACTORY_PATTERN', value: sourceBuildInfo.path),
-              string(name: 'ZOWE_ARTIFACTORY_BUILD', value: ''),
-              string(name: 'ZOWE_CLI_ARTIFACTORY_PATTERN', value: sourcecliBuildInfo.path),
-              string(name: 'ZOWE_CLI_ARTIFACTORY_BUILD', value: ''),
-              string(name: 'TEST_CASE_DEBUG_INFORMATION', value: 'test:*')
-            ],
-            propagate: false
-          )
-        echo "Test result: ${test_result.result}"
-        if (test_result.result != 'SUCCESS') {
-          testBuildErrorUrl = test_result.absoluteUrl
-          echo "Test failed on build ${sourceBuildInfo.path}, check failure details at ${test_result.absoluteUrl}"
+        if (params.TEST_RUN) {
+          echo """Skip testing with parameters:
+
+SKIP_RESET_IMAGE: true
+ZOWE_ARTIFACTORY_PATTERN: '${sourceBuildInfo.path}'
+ZOWE_ARTIFACTORY_BUILD: ''
+ZOWE_CLI_ARTIFACTORY_PATTERN: '${sourcecliBuildInfo.path}'
+ZOWE_CLI_ARTIFACTORY_BUILD: ''
+TEST_CASE_DEBUG_INFORMATION: 'test:*'
+"""
+        } else {
+          def test_result = build(
+              job: '/zowe-install-test/master',
+              parameters: [
+                booleanParam(name: 'SKIP_RESET_IMAGE', value: true),
+                string(name: 'ZOWE_ARTIFACTORY_PATTERN', value: sourceBuildInfo.path),
+                string(name: 'ZOWE_ARTIFACTORY_BUILD', value: ''),
+                string(name: 'ZOWE_CLI_ARTIFACTORY_PATTERN', value: sourcecliBuildInfo.path),
+                string(name: 'ZOWE_CLI_ARTIFACTORY_BUILD', value: ''),
+                string(name: 'TEST_CASE_DEBUG_INFORMATION', value: 'test:*')
+              ],
+              propagate: false
+            )
+          echo "Test result: ${test_result.result}"
+          if (test_result.result != 'SUCCESS') {
+            testBuildErrorUrl = test_result.absoluteUrl
+            echo "Test failed on build ${sourceBuildInfo.path}, check failure details at ${test_result.absoluteUrl}"
+          }
         }
       }
     }
