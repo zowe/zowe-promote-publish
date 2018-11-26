@@ -65,6 +65,32 @@ customParameters.push(string(
   trim: true
 ))
 customParameters.push(string(
+  name: 'ZOWE_CLI_BUILD_REPOSITORY',
+  description: 'Zowe CLI successful build repository',
+  defaultValue: 'libs-snapshot-local',
+  trim: true,
+  required: true
+))
+customParameters.push(string(
+  name: 'ZOWE_CLI_BUILD_NAME',
+  description: 'Zowe CLI successful build name',
+  defaultValue: 'Zowe CLI Bundle :: master',
+  trim: true,
+  required: true
+))
+customParameters.push(string(
+  name: 'ZOWE_CLI_BUILD_NUMBER',
+  description: 'REQUIRED if ZOWE_CLI_BUILD_RC_PATH is empty. Zowe CLI successful build number',
+  defaultValue: '',
+  trim: true
+))
+customParameters.push(string(
+  name: 'ZOWE_CLI_BUILD_RC_PATH',
+  description: 'REQUIRED if ZOWE_CLI_BUILD_NUMBER is empty. Zowe CLI build artifactory download path. If the build original file has been removed from artifactory, we can promote any existing file. Example: libs-release-local/org/zowe/0.9.3-RC2/zowe-cli-package-0.9.3.zip',
+  defaultValue: '',
+  trim: true
+))
+customParameters.push(string(
   name: 'ZOWE_RELEASE_REPOSITORY',
   description: 'Zowe release repository',
   defaultValue: 'libs-release-local',
@@ -152,11 +178,13 @@ node ('ibm-jenkins-slave-nvm') {
   currentBuild.result = 'SUCCESS'
 
   def releaseFilename = "zowe-${params.ZOWE_RELEASE_VERSION}.pax"
+  def releaseCliFilename = "zowe-cli-package-${params.ZOWE_RELEASE_VERSION}.zip"
   def releaseFilePath = "${params.ZOWE_RELEASE_REPOSITORY}${params.ZOWE_RELEASE_PATH}/${params.ZOWE_RELEASE_VERSION}"
   def releaseFileFull = "${releaseFilePath}/${releaseFilename}"
-  def zoweCliPackageFull = "${params.ZOWE_RELEASE_REPOSITORY}/org/zowe/cli/zowe-cli-package/${params.ZOWE_RELEASE_VERSION}/zowe-cli-package-${params.ZOWE_RELEASE_VERSION}.zip"
+  def releaseCliFileFull = "${releaseFilePath}/${releaseCliFilename}"
   def isFormalRelease = false
   def gitRevision = null
+  def gitCliRevision = null
 
   try {
 
@@ -169,6 +197,12 @@ node ('ibm-jenkins-slave-nvm') {
       }
       if (!params.ZOWE_BUILD_NUMBER && !params.ZOWE_BUILD_RC_PATH) {
         error "ZOWE_BUILD_NUMBER or ZOWE_BUILD_RC_PATH is required to promote build."
+      }
+      if (!params.ZOWE_CLI_BUILD_NAME) {
+        error "ZOWE_CLI_BUILD_NAME is required to promote build."
+      }
+      if (!params.ZOWE_CLI_BUILD_NUMBER && !params.ZOWE_CLI_BUILD_RC_PATH) {
+        error "ZOWE_CLI_BUILD_NUMBER or ZOWE_CLI_BUILD_RC_PATH is required to promote build."
       }
       if (!params.ZOWE_RELEASE_CATEGORY) {
         error "ZOWE_RELEASE_CATEGORY is required to promote build."
@@ -210,17 +244,31 @@ node ('ibm-jenkins-slave-nvm') {
 
       // check build info
       withCredentials([usernamePassword(credentialsId: params.ARTIFACTORY_SECRET, passwordVariable: 'PASSWORD', usernameVariable: 'USERNAME')]) {
-        // FIXME: this could be risky if build name including non-ASCII characters
-        def encodedBuildName = params.ZOWE_BUILD_NAME.replace(' ', '%20')
-        gitRevision = sh(
-          script: "curl -u \"${USERNAME}:${PASSWORD}\" -sS \"${params.ARTIFACTORY_URL}/api/build/${encodedBuildName}/${params.ZOWE_BUILD_NUMBER}\" | jq \".buildInfo.vcsRevision\"",
-          returnStdout: true
-        ).trim()
-        gitRevision = gitRevision.replace('"', '')
-        if (!(gitRevision ==~ /^[0-9a-fA-F]{40}$/)) { // if it's a SHA-1 commit hash
-          error "Cannot extract git revision from build \"${params.ZOWE_BUILD_NAME}/${params.ZOWE_BUILD_NUMBER}\""
+        if (params.ZOWE_BUILD_NUMBER) {
+          // FIXME: this could be risky if build name including non-ASCII characters
+          def encodedBuildName = params.ZOWE_BUILD_NAME.replace(' ', '%20')
+          gitRevision = sh(
+            script: "curl -u \"${USERNAME}:${PASSWORD}\" -sS \"${params.ARTIFACTORY_URL}/api/build/${encodedBuildName}/${params.ZOWE_BUILD_NUMBER}\" | jq \".buildInfo.vcsRevision\"",
+            returnStdout: true
+          ).trim()
+          gitRevision = gitRevision.replace('"', '')
+          if (!(gitRevision ==~ /^[0-9a-fA-F]{40}$/)) { // if it's a SHA-1 commit hash
+            error "Cannot extract git revision from build \"${params.ZOWE_BUILD_NAME}/${params.ZOWE_BUILD_NUMBER}\""
+          }
+          echo ">>>> Build ${params.ZOWE_BUILD_NAME}/${params.ZOWE_BUILD_NUMBER} commit hash is ${gitRevision}, may proceed."
         }
-        echo ">>>> Build ${params.ZOWE_BUILD_NAME}/${params.ZOWE_BUILD_NUMBER} commit hash is ${gitRevision}, may proceed."
+        if (params.ZOWE_CLI_BUILD_NUMBER) {
+          def encodedCliBuildName = params.ZOWE_CLI_BUILD_NAME.replace(' ', '%20')
+          gitCliRevision = sh(
+            script: "curl -u \"${USERNAME}:${PASSWORD}\" -sS \"${params.ARTIFACTORY_URL}/api/build/${encodedCliBuildName}/${params.ZOWE_CLI_BUILD_NUMBER}\" | jq \".buildInfo.vcsRevision\"",
+            returnStdout: true
+          ).trim()
+          gitCliRevision = gitCliRevision.replace('"', '')
+          if (!(gitCliRevision ==~ /^[0-9a-fA-F]{40}$/)) { // if it's a SHA-1 commit hash
+            error "Cannot extract git revision from build \"${params.ZOWE_CLI_BUILD_NAME}/${params.ZOWE_CLI_BUILD_NUMBER}\""
+          }
+          echo ">>>> Build ${params.ZOWE_CLI_BUILD_NAME}/${params.ZOWE_CLI_BUILD_NUMBER} commit hash is ${gitCliRevision}, may proceed."
+        }
       }
 
       // check deploy target directory
@@ -254,7 +302,7 @@ EOF""", returnStatus:true)
       // get build information
       def artifactorySearch = ""
       if (params.ZOWE_BUILD_NUMBER) {
-        artifactorySearch = "--build=\"${params.ZOWE_BUILD_NAME}/${params.ZOWE_BUILD_NUMBER}\" ${params.ZOWE_BUILD_REPOSITORY}/*.pax"
+        artifactorySearch = "--build=\"${params.ZOWE_BUILD_NAME}/${params.ZOWE_BUILD_NUMBER}\" ${params.ZOWE_BUILD_REPOSITORY}/*"
       } else if (params.ZOWE_BUILD_RC_PATH) {
         artifactorySearch = "\"${params.ZOWE_BUILD_RC_PATH}\""
       } else {
@@ -352,6 +400,109 @@ EOF""", returnStatus:true)
       echo "===================== File properties ===================== "
       echo props.join("\n")
       sh "jfrog rt set-props \"${releaseFileFull}\" \"" + props.join(';') + "\""
+
+      // FIXME: move the similar process to library
+      // >>>> promote CLI package
+      // get build information
+      def cliArtifactorySearch = ""
+      if (params.ZOWE_CLI_BUILD_NUMBER) {
+        cliArtifactorySearch = "--build=\"${params.ZOWE_CLI_BUILD_NAME}/${params.ZOWE_CLI_BUILD_NUMBER}\" ${params.ZOWE_CLI_BUILD_REPOSITORY}/*"
+      } else if (params.ZOWE_CLI_BUILD_RC_PATH) {
+        cliArtifactorySearch = "\"${params.ZOWE_CLI_BUILD_RC_PATH}\""
+      } else {
+        error "No file to promote"
+      }
+      def cliBuildsInfoText = sh(
+        script: "jfrog rt search ${cliArtifactorySearch}",
+        returnStdout: true
+      ).trim()
+      echo "Build/file search result:"
+      echo cliBuildsInfoText
+      /**
+       * Example result:
+       *
+       * [
+       *   {
+       *     "path": "libs-snapshot-local/org/zowe/cli/zowe-cli-package/0.9.5-SNAPSHOT/zowe-cli-package-0.9.5-20181126.171303-1.zip",
+       *     "props": {
+       *       "build.name": "Zowe CLI Bundle :: master",
+       *       "build.number": "23",
+       *       "build.timestamp": "1543252383120",
+       *       "vcs.revision": "be679f4fd22eab20dbd17ab32d88a6c76d0ae70b"
+       *     }
+       *   }
+       * ]
+       */
+      def cliBuildsInfo = readJSON text: cliBuildsInfoText
+      def cliBuildSize = cliBuildsInfo.size()
+      if (cliBuildSize < 1) {
+        if (params.ZOWE_CLI_BUILD_NUMBER) {
+          error "Cannot find build \"${params.ZOWE_CLI_BUILD_NAME}/${params.ZOWE_CLI_BUILD_NUMBER}\""
+        } else if (params.ZOWE_CLI_BUILD_RC_PATH) {
+          error "Cannot find file \"${params.ZOWE_CLI_BUILD_RC_PATH}\""
+        }
+      }
+      if (cliBuildSize > 1) {
+        if (params.ZOWE_CLI_BUILD_NUMBER) {
+          error "Found ${cliBuildSize} builds for \"${params.ZOWE_CLI_BUILD_NAME}/${params.ZOWE_CLI_BUILD_NUMBER}\""
+        } else if (params.ZOWE_CLI_BUILD_RC_PATH) {
+          error "Found ${cliBuildSize} files for \"${params.ZOWE_CLI_BUILD_RC_PATH}\""
+        }
+      }
+      def cliBuildInfo = cliBuildsInfo.first()
+      if (!cliBuildInfo || !cliBuildInfo.path) {
+        error "Failed to find build artifactory."
+      }
+
+      // extract build information
+      def cliBuildTimestamp = cliBuildInfo.props.get('build.timestamp')
+      // think this should be a bug
+      // readJSON returns cliBuildTimestamp as net.sf.json.JSONArray
+      // this step is a workaround
+      if (cliBuildTimestamp.getClass().toString().endsWith('JSONArray')) {
+        cliBuildTimestamp = cliBuildTimestamp.get(0)
+      }
+      // get original build name/number
+      def cliBuildName = cliBuildInfo.props.get('build.name')
+      if (cliBuildName.getClass().toString().endsWith('JSONArray')) {
+        cliBuildName = cliBuildName.get(0)
+      }
+      def cliBuildNumber = cliBuildInfo.props.get('build.number')
+      if (cliBuildNumber.getClass().toString().endsWith('JSONArray')) {
+        cliBuildNumber = cliBuildNumber.get(0)
+      }
+      if (cliBuildName.contains('zowe-promote-publish')) {
+        // find parent build
+        cliBuildName = cliBuildInfo.props.get('build.parentName')
+        if (cliBuildName.getClass().toString().endsWith('JSONArray')) {
+          cliBuildName = cliBuildName.get(0)
+        }
+        cliBuildNumber = cliBuildInfo.props.get('build.parentNumber')
+        if (cliBuildNumber.getClass().toString().endsWith('JSONArray')) {
+          cliBuildNumber = cliBuildNumber.get(0)
+        }
+      }
+      echo "CLI Build \"${cliBuildName}/${cliBuildNumber}\":"
+      echo "- zip path       : ${cliBuildInfo.path}"
+      echo "- build timestamp: ${cliBuildTimestamp}"
+
+      // copy artifact
+      echo "===================== Promoting (copying) ===================== "
+      echo "- from: ${cliBuildInfo.path}"
+      echo "-   to: ${releaseCliFileFull}"
+      sh "jfrog rt copy --flat \"${cliBuildInfo.path}\" \"${releaseCliFileFull}\""
+
+      // update file property
+      def cliProps = []
+      def currentcliBuildName = env.JOB_NAME.replace('/', ' :: ')
+      cliProps << "build.name=${currentcliBuildName}"
+      cliProps << "build.number=${env.BUILD_NUMBER}"
+      cliProps << "build.parentName=${cliBuildName}"
+      cliProps << "build.parentNumber=${cliBuildNumber}"
+      cliProps << "build.timestamp=${cliBuildTimestamp}"
+      echo "===================== File properties ===================== "
+      echo cliProps.join("\n")
+      sh "jfrog rt set-props \"${releaseCliFileFull}\" \"" + cliProps.join(';') + "\""
     }
 
     utils.conditionalStage('tag', isFormalRelease) {
@@ -382,13 +533,13 @@ EOF""", returnStatus:true)
     stage('publish') {
       // download build
       sh "jfrog rt download --flat \"${releaseFileFull}\""
-      sh "jfrog rt download --flat \"${zoweCliPackageFull}\""
+      sh "jfrog rt download --flat \"${releaseCliFileFull}\""
 
       withCredentials([usernamePassword(credentialsId: params.PUBLISH_SSH_CREDENTIAL, passwordVariable: 'PASSWORD', usernameVariable: 'USERNAME')]) {
         // upload to publish server
         sh """SSHPASS=${PASSWORD} sshpass -e sftp -o BatchMode=no -o StrictHostKeyChecking=no -o PubkeyAuthentication=no -b - -P ${params.PUBLISH_SSH_PORT} ${USERNAME}@${params.PUBLISH_SSH_HOST} << EOF
 put ${releaseFilename}
-put ${zoweCliPackageFull}
+put ${releaseCliFilename}
 put scripts/zowe-publish.sh
 bye
 EOF"""
@@ -416,12 +567,12 @@ ${source} is promoted as Zowe v${params.ZOWE_RELEASE_VERSION}, you can download 
 
 ${params.ARTIFACTORY_URL}/${releaseFileFull}
 or:
-https://projectgiza.org/builds/${params.ZOWE_RELEASE_CATEGORY}/${params.ZOWE_RELEASE_VERSION}/zowe-${params.ZOWE_RELEASE_VERSION}.pax
+https://projectgiza.org/builds/${params.ZOWE_RELEASE_CATEGORY}/${params.ZOWE_RELEASE_VERSION}/${releaseFilename}
 
-The CLI Standalone Package is published here: 
-${params.ARTIFACTORY_URL}/${zoweCliPackageFull}
+The CLI Standalone Package is published here:
+${params.ARTIFACTORY_URL}/${releaseCliFileFull}
 or:
-https://projectgiza.org/builds/${params.ZOWE_RELEASE_CATEGORY}/${params.ZOWE_RELEASE_VERSION}/zowe-cli-package-${params.ZOWE_RELEASE_VERSION}.zip
+https://projectgiza.org/builds/${params.ZOWE_RELEASE_CATEGORY}/${params.ZOWE_RELEASE_VERSION}/${releaseCliFilename}
 
 *************************************************************************************************
       """

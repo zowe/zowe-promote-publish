@@ -15,6 +15,9 @@ def zoweReleaseRepository = 'libs-release-local'
 def zoweReleasePath = '/org/zowe/nightly'
 def zoweBuildName = 'zowe-install-packaging :: master'
 def zoweBuildRepository = 'libs-snapshot-local'
+def zoweCliReleasePath = '/org/zowe/nightly/cli'
+def zoweCliBuildName = 'Zowe CLI Bundle :: master'
+def zoweCliBuildRepository = 'libs-snapshot-local'
 
 def opts = []
 // keep last 20 builds for regular branches, no keep for pull requests
@@ -43,6 +46,11 @@ customParameters.push(credentials(
   defaultValue: 'GizaArtifactory',
   required: true
 ))
+customParameters.push(booleanParam(
+  name: 'TEST_RUN',
+  description: 'Test run will skip test cases and will not send out Slack message.',
+  defaultValue: false
+))
 opts.push(parameters(customParameters))
 
 // set build properties
@@ -57,6 +65,12 @@ node ('ibm-jenkins-slave-nvm') {
   def buildTimestamp = null
   def targetFilePath = "${zoweReleaseRepository}${zoweReleasePath}"
   def targetFullPath = null
+  def cliSourceBuildInfo = null
+  def cliBuildName = null
+  def cliBuildNumber = null
+  def cliBuildTimestamp = null
+  def cliTargetFilePath = "${zoweReleaseRepository}${zoweCliReleasePath}"
+  def cliTargetFullPath = null
   def testBuildErrorUrl = ""
 
   try {
@@ -67,12 +81,12 @@ node ('ibm-jenkins-slave-nvm') {
     }
 
     stage('validate') {
-      echo "Checking last build of \"${zoweBuildName}\" ..."
-
       // prepare JFrog CLI configurations
       withCredentials([usernamePassword(credentialsId: params.ARTIFACTORY_SECRET, passwordVariable: 'PASSWORD', usernameVariable: 'USERNAME')]) {
         sh "jfrog rt config rt-server-1 --url=${params.ARTIFACTORY_URL} --user=${USERNAME} --password=${PASSWORD}"
       }
+
+      echo "Checking last build of \"${zoweBuildName}\" ..."
 
       // check artifactory
       def latestBuild = sh(
@@ -130,6 +144,50 @@ node ('ibm-jenkins-slave-nvm') {
       } else {
         echo "Will need to re-build."
       }
+
+      // FIXME: move the similar process to library
+      echo "Checking last CLI build of \"${zoweCliBuildName}\" ..."
+
+      // check artifactory
+      def latestCliBuild = sh(
+        script: "jfrog rt search --build=\"${zoweCliBuildName}\" \"${zoweCliBuildRepository}/*\"",
+        returnStdout: true
+      ).trim()
+      echo "Latest build is: ${latestCliBuild}"
+      /**
+       * Example result:
+       *
+       * [
+       *   {
+       *     "path": "libs-snapshot-local/org/zowe/cli/zowe-cli-package/0.9.5-SNAPSHOT/zowe-cli-package-0.9.5-20181126.193239-1.zip",
+       *     "props": {
+       *       "build.name": "Zowe CLI Bundle :: master",
+       *       "build.number": "25",
+       *       "build.timestamp": "1543260759356",
+       *       "vcs.revision": "c2c2c437ab1bef260f9697b0172079ae0e685a5e"
+       *     }
+       *   }
+       * ]
+       */
+      def cliBuildsInfo = readJSON text: latestCliBuild
+      def cliBuildSize = cliBuildsInfo.size()
+      if (cliBuildSize < 1) {
+        error "Cannot find latest build of \"${zoweCliBuildName}\""
+      }
+      if (cliBuildSize > 1) {
+        error "Found ${cliBuildSize} builds for \"${zoweCliBuildName}\""
+      }
+      def cliBuildInfo = cliBuildsInfo.first()
+      if (!cliBuildInfo || !cliBuildInfo.path) {
+        error "Failed to find build artifactory."
+      }
+
+      // extract build information
+      cliBuildNumber = cliBuildInfo.props.get('build.number')
+      if (cliBuildNumber.getClass().toString().endsWith('JSONArray')) {
+        cliBuildNumber = cliBuildNumber.get(0)
+      }
+      cliSourceBuildInfo = cliBuildInfo
     }
 
     stage('build') {
@@ -176,20 +234,34 @@ node ('ibm-jenkins-slave-nvm') {
 
       timeout(time: 3, unit: 'HOURS') {
         // skip test for testing the pipeline
-        def test_result = build(
-            job: '/zowe-install-test/master',
-            parameters: [
-              booleanParam(name: 'SKIP_RESET_IMAGE', value: true),
-              string(name: 'ZOWE_ARTIFACTORY_PATTERN', value: sourceBuildInfo.path),
-              string(name: 'ZOWE_ARTIFACTORY_BUILD', value: ''),
-              string(name: 'TEST_CASE_DEBUG_INFORMATION', value: 'test:*')
-            ],
-            propagate: false
-          )
-        echo "Test result: ${test_result.result}"
-        if (test_result.result != 'SUCCESS') {
-          testBuildErrorUrl = test_result.absoluteUrl
-          echo "Test failed on build ${sourceBuildInfo.path}, check failure details at ${test_result.absoluteUrl}"
+        if (params.TEST_RUN) {
+          echo """Skip testing with parameters:
+
+SKIP_RESET_IMAGE: true
+ZOWE_ARTIFACTORY_PATTERN: '${sourceBuildInfo.path}'
+ZOWE_ARTIFACTORY_BUILD: ''
+ZOWE_CLI_ARTIFACTORY_PATTERN: '${cliSourceBuildInfo.path}'
+ZOWE_CLI_ARTIFACTORY_BUILD: ''
+TEST_CASE_DEBUG_INFORMATION: 'test:*'
+"""
+        } else {
+          def test_result = build(
+              job: '/zowe-install-test/master',
+              parameters: [
+                booleanParam(name: 'SKIP_RESET_IMAGE', value: true),
+                string(name: 'ZOWE_ARTIFACTORY_PATTERN', value: sourceBuildInfo.path),
+                string(name: 'ZOWE_ARTIFACTORY_BUILD', value: ''),
+                string(name: 'ZOWE_CLI_ARTIFACTORY_PATTERN', value: cliSourceBuildInfo.path),
+                string(name: 'ZOWE_CLI_ARTIFACTORY_BUILD', value: ''),
+                string(name: 'TEST_CASE_DEBUG_INFORMATION', value: 'test:*')
+              ],
+              propagate: false
+            )
+          echo "Test result: ${test_result.result}"
+          if (test_result.result != 'SUCCESS') {
+            testBuildErrorUrl = test_result.absoluteUrl
+            echo "Test failed on build ${sourceBuildInfo.path}, check failure details at ${test_result.absoluteUrl}"
+          }
         }
       }
     }
@@ -265,6 +337,79 @@ node ('ibm-jenkins-slave-nvm') {
       } else {
         echo "set-props result is successful as expected"
       }
+
+      // FIXME: move the similar process to library
+      // >>>> promote CLI package
+      // extract build information
+      cliBuildTimestamp = cliSourceBuildInfo.props.get('build.timestamp')
+      // think this should be a bug
+      // readJSON returns cliBuildTimestamp as net.sf.json.JSONArray
+      // this step is a workaround
+      if (cliBuildTimestamp.getClass().toString().endsWith('JSONArray')) {
+        cliBuildTimestamp = cliBuildTimestamp.get(0)
+      }
+      // get original build name/number
+      cliBuildName = cliSourceBuildInfo.props.get('build.name')
+      if (cliBuildName.getClass().toString().endsWith('JSONArray')) {
+        cliBuildName = cliBuildName.get(0)
+      }
+      cliBuildNumber = cliSourceBuildInfo.props.get('build.number')
+      if (cliBuildNumber.getClass().toString().endsWith('JSONArray')) {
+        cliBuildNumber = cliBuildNumber.get(0)
+      }
+      // extract file name
+      def cliSourceFilenameTrunks = cliSourceBuildInfo.path.split('/')
+      if (cliSourceFilenameTrunks.size() < 1) {
+        error "Invalid artifact: ${cliSourceBuildInfo.path}"
+      }
+      def cliSourceFilename = cliSourceFilenameTrunks[-1]
+      cliTargetFullPath = "${cliTargetFilePath}/${cliSourceFilename}"
+
+      echo "CLI Build \"${cliBuildName}/${cliBuildNumber}\":"
+      echo "- zip path       : ${cliSourceBuildInfo.path}"
+      echo "- build timestamp: ${cliBuildTimestamp}"
+
+      // copy artifact
+      echo "===================== Promoting (copying) ===================== "
+      echo "- from: ${cliSourceBuildInfo.path}"
+      echo "-   to: ${cliTargetFullPath}"
+      def promoteCliResult = sh(
+        script: "jfrog rt copy --flat \"${cliSourceBuildInfo.path}\" \"${cliTargetFullPath}\"",
+        returnStdout: true
+      ).trim()
+      echo "artifactory promote result:"
+      echo promoteCliResult
+      def promoteCliResultObject = readJSON(text: promoteCliResult)
+      if (promoteCliResultObject['status'] != 'success' ||
+          promoteCliResultObject['totals']['success'] != 1 || promoteCliResultObject['totals']['failure'] != 0) {
+        error "Failed on verifying promote result"
+      } else {
+        echo "promote result is successful as expected"
+      }
+
+      // update file property
+      def cliProps = []
+      def currentCliBuildName = env.JOB_NAME.replace('/', ' :: ')
+      cliProps << "build.name=${currentCliBuildName}"
+      cliProps << "build.number=${env.BUILD_NUMBER}"
+      cliProps << "build.parentName=${cliBuildName}"
+      cliProps << "build.parentNumber=${cliBuildNumber}"
+      cliProps << "build.timestamp=${cliBuildTimestamp}"
+      echo "===================== File properties ===================== "
+      echo cliProps.join("\n")
+      def setCliPropsResult = sh(
+        script: "jfrog rt set-props \"${cliTargetFullPath}\" \"" + cliProps.join(';') + "\"",
+        returnStdout: true
+      ).trim()
+      echo "artifactory set-props result:"
+      echo setCliPropsResult
+      def setCliPropsResultObject = readJSON(text: setCliPropsResult)
+      if (setCliPropsResultObject['status'] != 'success' ||
+          setCliPropsResultObject['totals']['success'] != 1 || setPropsResultObject['totals']['failure'] != 0) {
+        error "Failed on verifying set-props result"
+      } else {
+        echo "set-props result is successful as expected"
+      }
     }
 
     stage('done') {
@@ -273,6 +418,10 @@ node ('ibm-jenkins-slave-nvm') {
 Build #${buildNumber} is promoted as nightly build. You can download from:
 
 ${params.ARTIFACTORY_URL}/${targetFullPath}
+
+The CLI Standalone Package is published here:
+
+${params.ARTIFACTORY_URL}/${cliTargetFullPath}
 """
       if (testBuildErrorUrl) {
         slackColor = 'warning'
@@ -291,9 +440,13 @@ ${message}
 """
 
       def slackMessage = "${message}\nCheck pipeline detail: ${env.BUILD_URL}"
-      slackSend channel: slackChannel,
-                color: slackColor,
-                message: slackMessage
+      if (params.TEST_RUN) {
+        echo "Slack message in ${slackColor}:\n${slackMessage}"
+      } else {
+        slackSend channel: slackChannel,
+                  color: slackColor,
+                  message: slackMessage
+      }
 
       emailext body: "Job \"${env.JOB_NAME}\" build #${env.BUILD_NUMBER} succeeded.\n\nCheck detail: ${env.BUILD_URL}" ,
           subject: "[Jenkins] Job \"${env.JOB_NAME}\" build #${env.BUILD_NUMBER} succeeded\n\n${message}",
@@ -311,9 +464,13 @@ ${message}
     // catch all failures to send out notification
     def slackColor = 'warning'
     def slackMessage = "Promote nightly build failed.\n\nError: ${err}\n\nCheck pipeline detail: ${env.BUILD_URL}"
-    slackSend channel: slackChannel,
-              color: slackColor,
-              message: slackMessage
+    if (params.TEST_RUN) {
+      echo "Slack message in ${slackColor}:\n${slackMessage}"
+    } else {
+      slackSend channel: slackChannel,
+                color: slackColor,
+                message: slackMessage
+    }
 
     emailext body: "Job \"${env.JOB_NAME}\" build #${env.BUILD_NUMBER} failed.\n\nError: ${err}\n\nCheck detail: ${env.BUILD_URL}" ,
         subject: "[Jenkins] Job \"${env.JOB_NAME}\" build #${env.BUILD_NUMBER} failed",
