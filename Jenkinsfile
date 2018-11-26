@@ -178,7 +178,7 @@ node ('ibm-jenkins-slave-nvm') {
   currentBuild.result = 'SUCCESS'
 
   def releaseFilename = "zowe-${params.ZOWE_RELEASE_VERSION}.pax"
-  def releaseCliFilename = "zowe-cli-package-${params.ZOWE_RELEASE_VERSION}.pax"
+  def releaseCliFilename = "zowe-cli-package-${params.ZOWE_RELEASE_VERSION}.zip"
   def releaseFilePath = "${params.ZOWE_RELEASE_REPOSITORY}${params.ZOWE_RELEASE_PATH}/${params.ZOWE_RELEASE_VERSION}"
   def releaseFileFull = "${releaseFilePath}/${releaseFilename}"
   def releaseCliFileFull = "${releaseFilePath}/${releaseCliFilename}"
