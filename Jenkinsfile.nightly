@@ -363,7 +363,7 @@ TEST_CASE_DEBUG_INFORMATION: 'test:*'
         error "Invalid artifact: ${cliSourceBuildInfo.path}"
       }
       def cliSourceFilename = cliSourceFilenameTrunks[-1]
-      cliTargetFullPath = "${targetFilePath}/${cliSourceFilename}"
+      cliTargetFullPath = "${cliTargetFilePath}/${cliSourceFilename}"
 
       echo "CLI Build \"${cliBuildName}/${cliBuildNumber}\":"
       echo "- zip path       : ${cliSourceBuildInfo.path}"
