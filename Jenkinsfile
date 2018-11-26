@@ -154,6 +154,7 @@ node ('ibm-jenkins-slave-nvm') {
   def releaseFilename = "zowe-${params.ZOWE_RELEASE_VERSION}.pax"
   def releaseFilePath = "${params.ZOWE_RELEASE_REPOSITORY}${params.ZOWE_RELEASE_PATH}/${params.ZOWE_RELEASE_VERSION}"
   def releaseFileFull = "${releaseFilePath}/${releaseFilename}"
+  def zoweCliPackageFull = "${params.ZOWE_RELEASE_REPOSITORY}/org/zowe/cli/zowe-cli-package/${params.ZOWE_RELEASE_VERSION}/zowe-cli-package-${params.ZOWE_RELEASE_VERSION}.zip"
   def isFormalRelease = false
   def gitRevision = null
 
@@ -381,11 +382,13 @@ EOF""", returnStatus:true)
     stage('publish') {
       // download build
       sh "jfrog rt download --flat \"${releaseFileFull}\""
+      sh "jfrog rt download --flat \"${zoweCliPackageFull}\""
 
       withCredentials([usernamePassword(credentialsId: params.PUBLISH_SSH_CREDENTIAL, passwordVariable: 'PASSWORD', usernameVariable: 'USERNAME')]) {
         // upload to publish server
         sh """SSHPASS=${PASSWORD} sshpass -e sftp -o BatchMode=no -o StrictHostKeyChecking=no -o PubkeyAuthentication=no -b - -P ${params.PUBLISH_SSH_PORT} ${USERNAME}@${params.PUBLISH_SSH_HOST} << EOF
 put ${releaseFilename}
+put ${zoweCliPackageFull}
 put scripts/zowe-publish.sh
 bye
 EOF"""
@@ -414,6 +417,11 @@ ${source} is promoted as Zowe v${params.ZOWE_RELEASE_VERSION}, you can download 
 ${params.ARTIFACTORY_URL}/${releaseFileFull}
 or:
 https://projectgiza.org/builds/${params.ZOWE_RELEASE_CATEGORY}/${params.ZOWE_RELEASE_VERSION}/zowe-${params.ZOWE_RELEASE_VERSION}.pax
+
+The CLI Standalone Package is published here: 
+${params.ARTIFACTORY_URL}/${zoweCliPackageFull}
+or:
+https://projectgiza.org/builds/${params.ZOWE_RELEASE_CATEGORY}/${params.ZOWE_RELEASE_VERSION}/zowe-cli-package-${params.ZOWE_RELEASE_VERSION}.zip
 
 *************************************************************************************************
       """
