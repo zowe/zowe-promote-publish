@@ -373,15 +373,15 @@ TEST_CASE_DEBUG_INFORMATION: 'test:*'
       echo "===================== Promoting (copying) ===================== "
       echo "- from: ${cliSourceBuildInfo.path}"
       echo "-   to: ${cliTargetFullPath}"
-      def promoteResult = sh(
+      def promoteCliResult = sh(
         script: "jfrog rt copy --flat \"${cliSourceBuildInfo.path}\" \"${cliTargetFullPath}\"",
         returnStdout: true
       ).trim()
       echo "artifactory promote result:"
-      echo promoteResult
-      def promoteResultObject = readJSON(text: promoteResult)
-      if (promoteResultObject['status'] != 'success' ||
-          promoteResultObject['totals']['success'] != 1 || promoteResultObject['totals']['failure'] != 0) {
+      echo promoteCliResult
+      def promoteCliResultObject = readJSON(text: promoteCliResult)
+      if (promoteCliResultObject['status'] != 'success' ||
+          promoteCliResultObject['totals']['success'] != 1 || promoteCliResultObject['totals']['failure'] != 0) {
         error "Failed on verifying promote result"
       } else {
         echo "promote result is successful as expected"
