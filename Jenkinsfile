@@ -493,16 +493,16 @@ EOF""", returnStatus:true)
       sh "jfrog rt copy --flat \"${cliBuildInfo.path}\" \"${releaseCliFileFull}\""
 
       // update file property
-      def props = []
+      def cliProps = []
       def currentcliBuildName = env.JOB_NAME.replace('/', ' :: ')
-      props << "build.name=${currentcliBuildName}"
-      props << "build.number=${env.BUILD_NUMBER}"
-      props << "build.parentName=${cliBuildName}"
-      props << "build.parentNumber=${cliBuildNumber}"
-      props << "build.timestamp=${cliBuildTimestamp}"
+      cliProps << "build.name=${currentcliBuildName}"
+      cliProps << "build.number=${env.BUILD_NUMBER}"
+      cliProps << "build.parentName=${cliBuildName}"
+      cliProps << "build.parentNumber=${cliBuildNumber}"
+      cliProps << "build.timestamp=${cliBuildTimestamp}"
       echo "===================== File properties ===================== "
-      echo props.join("\n")
-      sh "jfrog rt set-props \"${releaseCliFileFull}\" \"" + props.join(';') + "\""
+      echo cliProps.join("\n")
+      sh "jfrog rt set-props \"${releaseCliFileFull}\" \"" + cliProps.join(';') + "\""
     }
 
     utils.conditionalStage('tag', isFormalRelease) {
