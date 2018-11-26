@@ -388,24 +388,24 @@ TEST_CASE_DEBUG_INFORMATION: 'test:*'
       }
 
       // update file property
-      def props = []
+      def cliProps = []
       def currentCliBuildName = env.JOB_NAME.replace('/', ' :: ')
-      props << "build.name=${currentCliBuildName}"
-      props << "build.number=${env.BUILD_NUMBER}"
-      props << "build.parentName=${cliBuildName}"
-      props << "build.parentNumber=${cliBuildNumber}"
-      props << "build.timestamp=${cliBuildTimestamp}"
+      cliProps << "build.name=${currentCliBuildName}"
+      cliProps << "build.number=${env.BUILD_NUMBER}"
+      cliProps << "build.parentName=${cliBuildName}"
+      cliProps << "build.parentNumber=${cliBuildNumber}"
+      cliProps << "build.timestamp=${cliBuildTimestamp}"
       echo "===================== File properties ===================== "
-      echo props.join("\n")
-      def setPropsResult = sh(
-        script: "jfrog rt set-props \"${cliTargetFullPath}\" \"" + props.join(';') + "\"",
+      echo cliProps.join("\n")
+      def setCliPropsResult = sh(
+        script: "jfrog rt set-props \"${cliTargetFullPath}\" \"" + cliProps.join(';') + "\"",
         returnStdout: true
       ).trim()
       echo "artifactory set-props result:"
-      echo setPropsResult
-      def setPropsResultObject = readJSON(text: setPropsResult)
-      if (setPropsResultObject['status'] != 'success' ||
-          setPropsResultObject['totals']['success'] != 1 || setPropsResultObject['totals']['failure'] != 0) {
+      echo setCliPropsResult
+      def setCliPropsResultObject = readJSON(text: setCliPropsResult)
+      if (setCliPropsResultObject['status'] != 'success' ||
+          setCliPropsResultObject['totals']['success'] != 1 || setPropsResultObject['totals']['failure'] != 0) {
         error "Failed on verifying set-props result"
       } else {
         echo "set-props result is successful as expected"
