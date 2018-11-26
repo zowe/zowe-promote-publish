@@ -187,7 +187,7 @@ node ('ibm-jenkins-slave-nvm') {
       if (cliBuildNumber.getClass().toString().endsWith('JSONArray')) {
         cliBuildNumber = cliBuildNumber.get(0)
       }
-      sourcecliBuildInfo = cliBuildInfo
+      cliSourceBuildInfo = cliBuildInfo
     }
 
     stage('build') {
@@ -240,7 +240,7 @@ node ('ibm-jenkins-slave-nvm') {
 SKIP_RESET_IMAGE: true
 ZOWE_ARTIFACTORY_PATTERN: '${sourceBuildInfo.path}'
 ZOWE_ARTIFACTORY_BUILD: ''
-ZOWE_CLI_ARTIFACTORY_PATTERN: '${sourcecliBuildInfo.path}'
+ZOWE_CLI_ARTIFACTORY_PATTERN: '${cliSourceBuildInfo.path}'
 ZOWE_CLI_ARTIFACTORY_BUILD: ''
 TEST_CASE_DEBUG_INFORMATION: 'test:*'
 """
@@ -251,7 +251,7 @@ TEST_CASE_DEBUG_INFORMATION: 'test:*'
                 booleanParam(name: 'SKIP_RESET_IMAGE', value: true),
                 string(name: 'ZOWE_ARTIFACTORY_PATTERN', value: sourceBuildInfo.path),
                 string(name: 'ZOWE_ARTIFACTORY_BUILD', value: ''),
-                string(name: 'ZOWE_CLI_ARTIFACTORY_PATTERN', value: sourcecliBuildInfo.path),
+                string(name: 'ZOWE_CLI_ARTIFACTORY_PATTERN', value: cliSourceBuildInfo.path),
                 string(name: 'ZOWE_CLI_ARTIFACTORY_BUILD', value: ''),
                 string(name: 'TEST_CASE_DEBUG_INFORMATION', value: 'test:*')
               ],
