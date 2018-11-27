@@ -10,6 +10,7 @@
  * Copyright IBM Corporation 2018
  */
 
+def isMasterBranch = env.BRANCH_NAME == 'master'
 def slackChannel = '#zowe-build'
 def zoweReleaseRepository = 'libs-release-local'
 def zoweReleasePath = '/org/zowe/nightly'
@@ -24,9 +25,11 @@ def opts = []
 opts.push(buildDiscarder(logRotator(numToKeepStr: '20')))
 // disable concurrent build
 opts.push(disableConcurrentBuilds())
-// run every night 11pm EST
-opts.push(pipelineTriggers([cron('''TZ=America/New_York
+if (isMasterBranch) {
+  // run every night 11pm EST
+  opts.push(pipelineTriggers([cron('''TZ=America/New_York
 H 23 * * *''')]))
+}
 
 // define custom build parameters
 def customParameters = []
@@ -49,7 +52,7 @@ customParameters.push(credentials(
 customParameters.push(booleanParam(
   name: 'TEST_RUN',
   description: 'Test run will skip test cases and will not send out Slack message.',
-  defaultValue: false
+  defaultValue: isMasterBranch ? false : true
 ))
 opts.push(parameters(customParameters))
 
