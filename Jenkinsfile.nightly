@@ -83,10 +83,7 @@ node ('ibm-jenkins-slave-nvm') {
       echo "Checking last build of \"${zoweBuildName}\" ..."
 
       // check artifactory for latest build
-      def latestBuild = getArtifactInfoByCLI(
-        artifactPath: "${zoweBuildRepository}/*",
-        buildName: zoweBuildName
-      )
+      def latestBuild = getArtifactInfoByCLI("${zoweBuildRepository}/*", zoweBuildName)
 
       // extract build information
       def buildNumber = latestBuild['build.number']
@@ -106,10 +103,7 @@ node ('ibm-jenkins-slave-nvm') {
       echo "Checking last CLI build of \"${zoweCliBuildName}\" ..."
 
       // check artifactory for latest CLI build
-      cliSourceBuildInfo = getArtifactInfoByCLI(
-        artifactPath: "${zoweCliBuildRepository}/*",
-        buildName: zoweCliBuildName
-      )
+      cliSourceBuildInfo = getArtifactInfoByCLI("${zoweCliBuildRepository}/*", zoweCliBuildName)
     }
 
     stage('build') {
@@ -125,10 +119,7 @@ node ('ibm-jenkins-slave-nvm') {
           }
 
           // load build info
-          sourceBuildInfo = getArtifactInfoByCLI(
-            artifactPath: "${zoweBuildRepository}/*",
-            buildName: zoweBuildName
-          )
+          sourceBuildInfo = getArtifactInfoByCLI("${zoweBuildRepository}/*", zoweBuildName)
         }
       }
     }
@@ -175,16 +166,10 @@ TEST_CASE_DEBUG_INFORMATION: 'test:*'
 
     stage('promote') {
       // promote Zowe nightly build
-      targetFullPath = promoteArtifact(
-        sourceArtifactInfo: sourceBuildInfo,
-        targetFilePath: releaseFilePath
-      )
+      targetFullPath = promoteArtifact(sourceBuildInfo, releaseFilePath)
 
       // promote Zowe CLI nightly build
-      cliTargetFullPath = promoteArtifact(
-        sourceArtifactInfo: cliSourceBuildInfo,
-        targetFilePath: cliTargetFilePath
-      )
+      cliTargetFullPath = promoteArtifact(cliSourceBuildInfo, cliTargetFilePath)
     }
 
     stage('done') {

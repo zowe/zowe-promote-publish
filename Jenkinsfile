@@ -245,11 +245,11 @@ node ('ibm-jenkins-slave-nvm') {
       // check build info
       if (params.ZOWE_BUILD_NUMBER) {
         gitRevision = getArtifactoryBuildInfoByAPI(
-          artifactoryUrl: params.ARTIFACTORY_URL,
-          artifactoryCredential: params.ARTIFACTORY_SECRET,
-          buildName: params.ZOWE_BUILD_NAME,
-          buildNumber: params.ZOWE_BUILD_NUMBER,
-          info: '.buildInfo.vcsRevision'
+          params.ARTIFACTORY_URL,
+          params.ARTIFACTORY_SECRET,
+          params.ZOWE_BUILD_NAME,
+          params.ZOWE_BUILD_NUMBER,
+          '.buildInfo.vcsRevision'
         )
         if (!(gitRevision ==~ /^[0-9a-fA-F]{40}$/)) { // if it's a SHA-1 commit hash
           error "Cannot extract git revision from build \"${params.ZOWE_BUILD_NAME}/${params.ZOWE_BUILD_NUMBER}\""
@@ -258,11 +258,11 @@ node ('ibm-jenkins-slave-nvm') {
       }
       if (params.ZOWE_CLI_BUILD_NUMBER) {
         gitCliRevision = getArtifactoryBuildInfoByAPI(
-          artifactoryUrl: params.ARTIFACTORY_URL,
-          artifactoryCredential: params.ARTIFACTORY_SECRET,
-          buildName: params.ZOWE_CLI_BUILD_NAME,
-          buildNumber: params.ZOWE_CLI_BUILD_NUMBER,
-          info: '.buildInfo.vcsRevision'
+          params.ARTIFACTORY_URL,
+          params.ARTIFACTORY_SECRET,
+          params.ZOWE_CLI_BUILD_NAME,
+          params.ZOWE_CLI_BUILD_NUMBER,
+          '.buildInfo.vcsRevision'
         )
         if (!(gitCliRevision ==~ /^[0-9a-fA-F]{40}$/)) { // if it's a SHA-1 commit hash
           error "Cannot extract git revision from build \"${params.ZOWE_CLI_BUILD_NAME}/${params.ZOWE_CLI_BUILD_NUMBER}\""
@@ -300,9 +300,9 @@ EOF""", returnStatus:true)
     stage('promote') {
       // get build information
       def buildInfo = getArtifactInfoByCLI(
-        artifactPath: (params.ZOWE_BUILD_RC_PATH) ? params.ZOWE_BUILD_RC_PATH : "${params.ZOWE_BUILD_REPOSITORY}/*",
-        buildName: params.ZOWE_BUILD_NAME,
-        buildNumber: params.ZOWE_BUILD_NUMBER
+        (params.ZOWE_BUILD_RC_PATH) ? params.ZOWE_BUILD_RC_PATH : "${params.ZOWE_BUILD_REPOSITORY}/*",
+        params.ZOWE_BUILD_NAME,
+        params.ZOWE_BUILD_NUMBER
       )
 
       // get original build name/number
@@ -313,14 +313,13 @@ EOF""", returnStatus:true)
       }
 
       // promote Zowe build artifact
-      promoteArtifact sourceArtifactInfo: buildInfo,
-        targetFilePath: releaseFilePath, targetFileName: releaseFilename
+      promoteArtifact(buildInfo, releaseFilePath, releaseFilename)
 
       // get CLI build information
       def cliBuildInfo = getArtifactInfoByCLI(
-        artifactPath: (params.ZOWE_CLI_BUILD_RC_PATH) ? params.ZOWE_CLI_BUILD_RC_PATH : "${params.ZOWE_CLI_BUILD_REPOSITORY}/*",
-        buildName: params.ZOWE_CLI_BUILD_NAME,
-        buildNumber: params.ZOWE_CLI_BUILD_NUMBER
+        (params.ZOWE_CLI_BUILD_RC_PATH) ? params.ZOWE_CLI_BUILD_RC_PATH : "${params.ZOWE_CLI_BUILD_REPOSITORY}/*",
+        params.ZOWE_CLI_BUILD_NAME,
+        params.ZOWE_CLI_BUILD_NUMBER
       )
 
       // get original CLI build name/number
@@ -331,18 +330,19 @@ EOF""", returnStatus:true)
       }
 
       // promote CLI build artifact
-      promoteArtifact sourceArtifactInfo: cliBuildInfo,
-        targetFilePath: releaseFilePath, targetFileName: releaseCliFilename
+      promoteArtifact(cliBuildInfo, releaseFilePath, releaseCliFilename)
     }
 
     utils.conditionalStage('tag', isFormalRelease) {
       // tag the repositories for a formal release
-      tagGithubRepository repository: zoweInstallPackagingRepo,
-          revision: gitRevision,
-          tag: "v${params.ZOWE_RELEASE_VERSION}",
-          crendential: params.GITHUB_CREDENTIALS,
-          username: params.GITHUB_USER_NAME,
-          email: params.GITHUB_USER_EMAIL
+      tagGithubRepository(
+        zoweInstallPackagingRepo,
+        gitRevision,
+        "v${params.ZOWE_RELEASE_VERSION}",
+        params.GITHUB_CREDENTIALS,
+        params.GITHUB_USER_NAME,
+        params.GITHUB_USER_EMAIL
+      )
     }
 
     stage('publish') {
