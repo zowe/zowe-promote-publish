@@ -169,7 +169,7 @@ TEST_CASE_DEBUG_INFORMATION: 'test:*'
 
     stage('promote') {
       // promote Zowe nightly build
-      targetFullPath = promoteArtifact(sourceBuildInfo, releaseFilePath)
+      targetFullPath = promoteArtifact(sourceBuildInfo, targetFilePath)
 
       // promote Zowe CLI nightly build
       cliTargetFullPath = promoteArtifact(cliSourceBuildInfo, cliTargetFilePath)
