@@ -312,6 +312,20 @@ EOF""", returnStatus:true)
         buildInfo['build.number'] = buildInfo['build.parentNumber']
       }
 
+      // retrieve gitRevision if doesn't exist, which doesn't provide ZOWE_BUILD_NUMBER
+      if (!gitRevision) {
+        gitRevision = getArtifactoryBuildInfoByAPI(
+          params.ARTIFACTORY_URL,
+          params.ARTIFACTORY_SECRET,
+          buildInfo['build.name'],
+          buildInfo['build.number'],
+          '.buildInfo.vcsRevision'
+        )
+        if (!(gitRevision ==~ /^[0-9a-fA-F]{40}$/)) { // if it's a SHA-1 commit hash
+          error "Cannot extract git revision from build \"${buildInfo['build.name']}/${buildInfo['build.number']}\""
+        }
+      }
+
       // promote Zowe build artifact
       promoteArtifact(buildInfo, releaseFilePath, releaseFilename)
 
