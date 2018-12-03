@@ -10,6 +10,7 @@
  * Copyright IBM Corporation 2018
  */
 
+def isMasterBranch = env.BRANCH_NAME == 'master'
 def slackChannel = '#zowe-build'
 def zoweReleaseRepository = 'libs-release-local'
 def zoweReleasePath = '/org/zowe/nightly'
@@ -24,9 +25,11 @@ def opts = []
 opts.push(buildDiscarder(logRotator(numToKeepStr: '20')))
 // disable concurrent build
 opts.push(disableConcurrentBuilds())
-// run every night 11pm EST
-opts.push(pipelineTriggers([cron('''TZ=America/New_York
+if (isMasterBranch) {
+  // run every night 11pm EST
+  opts.push(pipelineTriggers([cron('''TZ=America/New_York
 H 23 * * *''')]))
+}
 
 // define custom build parameters
 def customParameters = []
@@ -49,7 +52,7 @@ customParameters.push(credentials(
 customParameters.push(booleanParam(
   name: 'TEST_RUN',
   description: 'Test run will skip test cases and will not send out Slack message.',
-  defaultValue: false
+  defaultValue: isMasterBranch ? false : true
 ))
 opts.push(parameters(customParameters))
 
@@ -60,15 +63,9 @@ node ('ibm-jenkins-slave-nvm') {
   currentBuild.result = 'SUCCESS'
 
   def sourceBuildInfo = null
-  def buildName = null
-  def buildNumber = null
-  def buildTimestamp = null
   def targetFilePath = "${zoweReleaseRepository}${zoweReleasePath}"
   def targetFullPath = null
   def cliSourceBuildInfo = null
-  def cliBuildName = null
-  def cliBuildNumber = null
-  def cliBuildTimestamp = null
   def cliTargetFilePath = "${zoweReleaseRepository}${zoweCliReleasePath}"
   def cliTargetFullPath = null
   def testBuildErrorUrl = ""
@@ -88,51 +85,12 @@ node ('ibm-jenkins-slave-nvm') {
 
       echo "Checking last build of \"${zoweBuildName}\" ..."
 
-      // check artifactory
-      def latestBuild = sh(
-        script: "jfrog rt search --build=\"${zoweBuildName}\" \"${zoweBuildRepository}/*\"",
-        returnStdout: true
-      ).trim()
-      echo "Latest build is: ${latestBuild}"
-      /**
-       * Example result:
-       *
-       * [
-       *   {
-       *     "path": "libs-snapshot-local/com/project/zowe/0.9.0-SNAPSHOT/zowe-0.9.0-20180918.163158-38.pax",
-       *     "props": {
-       *       "build.name": "zowe-install-packaging :: master",
-       *       "build.number": "38",
-       *       "build.timestamp": "1537287202277"
-       *     }
-       *   }
-       * ]
-       */
-      def buildsInfo = readJSON text: latestBuild
-      def buildSize = buildsInfo.size()
-      if (buildSize < 1) {
-        error "Cannot find latest build of \"${zoweBuildName}\""
-      }
-      if (buildSize > 1) {
-        error "Found ${buildSize} builds for \"${zoweBuildName}\""
-      }
-      def buildInfo = buildsInfo.first()
-      if (!buildInfo || !buildInfo.path) {
-        error "Failed to find build artifactory."
-      }
+      // check artifactory for latest build
+      def latestBuild = getArtifactInfoByCLI("${zoweBuildRepository}/*", zoweBuildName)
 
       // extract build information
-      buildNumber = buildInfo.props.get('build.number')
-      if (buildNumber.getClass().toString().endsWith('JSONArray')) {
-        buildNumber = buildNumber.get(0)
-      }
-      buildTimestamp = buildInfo.props.get('build.timestamp')
-      // think this should be a bug
-      // readJSON returns buildTimestamp as net.sf.json.JSONArray
-      // this step is a workaround
-      if (buildTimestamp.getClass().toString().endsWith('JSONArray')) {
-        buildTimestamp = buildTimestamp.get(0)
-      }
+      def buildNumber = latestBuild['build.number']
+      def buildTimestamp = latestBuild['build.timestamp']
       long buildTimestampInt = buildTimestamp as Long
       def currentTimestamp = sh(script: 'date +"%s"', returnStdout: true).trim()
       long currentTimestampInt = currentTimestamp as Long
@@ -140,58 +98,19 @@ node ('ibm-jenkins-slave-nvm') {
       echo "Build #${buildNumber} is ${timeElapse} hours ago"
       if (timeElapse < 22) { // how many hours we consider it's too old?
         echo "Will skip re-build."
-        sourceBuildInfo = buildInfo
+        sourceBuildInfo = latestBuild
       } else {
         echo "Will need to re-build."
       }
 
-      // FIXME: move the similar process to library
       echo "Checking last CLI build of \"${zoweCliBuildName}\" ..."
 
-      // check artifactory
-      def latestCliBuild = sh(
-        script: "jfrog rt search --build=\"${zoweCliBuildName}\" \"${zoweCliBuildRepository}/*\"",
-        returnStdout: true
-      ).trim()
-      echo "Latest build is: ${latestCliBuild}"
-      /**
-       * Example result:
-       *
-       * [
-       *   {
-       *     "path": "libs-snapshot-local/org/zowe/cli/zowe-cli-package/0.9.5-SNAPSHOT/zowe-cli-package-0.9.5-20181126.193239-1.zip",
-       *     "props": {
-       *       "build.name": "Zowe CLI Bundle :: master",
-       *       "build.number": "25",
-       *       "build.timestamp": "1543260759356",
-       *       "vcs.revision": "c2c2c437ab1bef260f9697b0172079ae0e685a5e"
-       *     }
-       *   }
-       * ]
-       */
-      def cliBuildsInfo = readJSON text: latestCliBuild
-      def cliBuildSize = cliBuildsInfo.size()
-      if (cliBuildSize < 1) {
-        error "Cannot find latest build of \"${zoweCliBuildName}\""
-      }
-      if (cliBuildSize > 1) {
-        error "Found ${cliBuildSize} builds for \"${zoweCliBuildName}\""
-      }
-      def cliBuildInfo = cliBuildsInfo.first()
-      if (!cliBuildInfo || !cliBuildInfo.path) {
-        error "Failed to find build artifactory."
-      }
-
-      // extract build information
-      cliBuildNumber = cliBuildInfo.props.get('build.number')
-      if (cliBuildNumber.getClass().toString().endsWith('JSONArray')) {
-        cliBuildNumber = cliBuildNumber.get(0)
-      }
-      cliSourceBuildInfo = cliBuildInfo
+      // check artifactory for latest CLI build
+      cliSourceBuildInfo = getArtifactInfoByCLI("${zoweCliBuildRepository}/*", zoweCliBuildName)
     }
 
     stage('build') {
-      if (!sourceBuildInfo || !sourceBuildInfo.path) {
+      if (!sourceBuildInfo || !sourceBuildInfo['path']) {
         echo "Building new driver ..."
 
         timeout(time: 1, unit: 'HOURS') {
@@ -203,25 +122,7 @@ node ('ibm-jenkins-slave-nvm') {
           }
 
           // load build info
-          def latestBuild = sh(
-            script: "jfrog rt search --build=\"${zoweBuildName}\" \"${zoweBuildRepository}/*\"",
-            returnStdout: true
-          ).trim()
-          echo "Latest build is: ${latestBuild}"
-
-          def buildsInfo = readJSON text: latestBuild
-          def buildSize = buildsInfo.size()
-          if (buildSize < 1) {
-            error "Cannot find latest build of \"${zoweBuildName}\""
-          }
-          if (buildSize > 1) {
-            error "Found ${buildSize} builds for \"${zoweBuildName}\""
-          }
-          def buildInfo = buildsInfo.first()
-          if (!buildInfo || !buildInfo.path) {
-            error "Failed to find build artifactory."
-          }
-          sourceBuildInfo = buildInfo
+          sourceBuildInfo = getArtifactInfoByCLI("${zoweBuildRepository}/*", zoweBuildName)
         }
       }
     }
@@ -267,155 +168,17 @@ TEST_CASE_DEBUG_INFORMATION: 'test:*'
     }
 
     stage('promote') {
-      // extract build information
-      buildTimestamp = sourceBuildInfo.props.get('build.timestamp')
-      // think this should be a bug
-      // readJSON returns buildTimestamp as net.sf.json.JSONArray
-      // this step is a workaround
-      if (buildTimestamp.getClass().toString().endsWith('JSONArray')) {
-        buildTimestamp = buildTimestamp.get(0)
-      }
-      // get original build name/number
-      buildName = sourceBuildInfo.props.get('build.name')
-      if (buildName.getClass().toString().endsWith('JSONArray')) {
-        buildName = buildName.get(0)
-      }
-      buildNumber = sourceBuildInfo.props.get('build.number')
-      if (buildNumber.getClass().toString().endsWith('JSONArray')) {
-        buildNumber = buildNumber.get(0)
-      }
-      // extract file name
-      def sourceFilenameTrunks = sourceBuildInfo.path.split('/')
-      if (sourceFilenameTrunks.size() < 1) {
-        error "Invalid artifact: ${sourceBuildInfo.path}"
-      }
-      def sourceFilename = sourceFilenameTrunks[-1]
-      targetFullPath = "${targetFilePath}/${sourceFilename}"
+      // promote Zowe nightly build
+      targetFullPath = promoteArtifact(sourceBuildInfo, targetFilePath)
 
-      echo "Build \"${buildName}/${buildNumber}\":"
-      echo "- pax path       : ${sourceBuildInfo.path}"
-      echo "- build timestamp: ${buildTimestamp}"
-
-      // copy artifact
-      echo "===================== Promoting (copying) ===================== "
-      echo "- from: ${sourceBuildInfo.path}"
-      echo "-   to: ${targetFullPath}"
-      def promoteResult = sh(
-        script: "jfrog rt copy --flat \"${sourceBuildInfo.path}\" \"${targetFullPath}\"",
-        returnStdout: true
-      ).trim()
-      echo "artifactory promote result:"
-      echo promoteResult
-      def promoteResultObject = readJSON(text: promoteResult)
-      if (promoteResultObject['status'] != 'success' ||
-          promoteResultObject['totals']['success'] != 1 || promoteResultObject['totals']['failure'] != 0) {
-        error "Failed on verifying promote result"
-      } else {
-        echo "promote result is successful as expected"
-      }
-
-      // update file property
-      def props = []
-      def currentBuildName = env.JOB_NAME.replace('/', ' :: ')
-      props << "build.name=${currentBuildName}"
-      props << "build.number=${env.BUILD_NUMBER}"
-      props << "build.parentName=${buildName}"
-      props << "build.parentNumber=${buildNumber}"
-      props << "build.timestamp=${buildTimestamp}"
-      echo "===================== File properties ===================== "
-      echo props.join("\n")
-      def setPropsResult = sh(
-        script: "jfrog rt set-props \"${targetFullPath}\" \"" + props.join(';') + "\"",
-        returnStdout: true
-      ).trim()
-      echo "artifactory set-props result:"
-      echo setPropsResult
-      def setPropsResultObject = readJSON(text: setPropsResult)
-      if (setPropsResultObject['status'] != 'success' ||
-          setPropsResultObject['totals']['success'] != 1 || setPropsResultObject['totals']['failure'] != 0) {
-        error "Failed on verifying set-props result"
-      } else {
-        echo "set-props result is successful as expected"
-      }
-
-      // FIXME: move the similar process to library
-      // >>>> promote CLI package
-      // extract build information
-      cliBuildTimestamp = cliSourceBuildInfo.props.get('build.timestamp')
-      // think this should be a bug
-      // readJSON returns cliBuildTimestamp as net.sf.json.JSONArray
-      // this step is a workaround
-      if (cliBuildTimestamp.getClass().toString().endsWith('JSONArray')) {
-        cliBuildTimestamp = cliBuildTimestamp.get(0)
-      }
-      // get original build name/number
-      cliBuildName = cliSourceBuildInfo.props.get('build.name')
-      if (cliBuildName.getClass().toString().endsWith('JSONArray')) {
-        cliBuildName = cliBuildName.get(0)
-      }
-      cliBuildNumber = cliSourceBuildInfo.props.get('build.number')
-      if (cliBuildNumber.getClass().toString().endsWith('JSONArray')) {
-        cliBuildNumber = cliBuildNumber.get(0)
-      }
-      // extract file name
-      def cliSourceFilenameTrunks = cliSourceBuildInfo.path.split('/')
-      if (cliSourceFilenameTrunks.size() < 1) {
-        error "Invalid artifact: ${cliSourceBuildInfo.path}"
-      }
-      def cliSourceFilename = cliSourceFilenameTrunks[-1]
-      cliTargetFullPath = "${cliTargetFilePath}/${cliSourceFilename}"
-
-      echo "CLI Build \"${cliBuildName}/${cliBuildNumber}\":"
-      echo "- zip path       : ${cliSourceBuildInfo.path}"
-      echo "- build timestamp: ${cliBuildTimestamp}"
-
-      // copy artifact
-      echo "===================== Promoting (copying) ===================== "
-      echo "- from: ${cliSourceBuildInfo.path}"
-      echo "-   to: ${cliTargetFullPath}"
-      def promoteCliResult = sh(
-        script: "jfrog rt copy --flat \"${cliSourceBuildInfo.path}\" \"${cliTargetFullPath}\"",
-        returnStdout: true
-      ).trim()
-      echo "artifactory promote result:"
-      echo promoteCliResult
-      def promoteCliResultObject = readJSON(text: promoteCliResult)
-      if (promoteCliResultObject['status'] != 'success' ||
-          promoteCliResultObject['totals']['success'] != 1 || promoteCliResultObject['totals']['failure'] != 0) {
-        error "Failed on verifying promote result"
-      } else {
-        echo "promote result is successful as expected"
-      }
-
-      // update file property
-      def cliProps = []
-      def currentCliBuildName = env.JOB_NAME.replace('/', ' :: ')
-      cliProps << "build.name=${currentCliBuildName}"
-      cliProps << "build.number=${env.BUILD_NUMBER}"
-      cliProps << "build.parentName=${cliBuildName}"
-      cliProps << "build.parentNumber=${cliBuildNumber}"
-      cliProps << "build.timestamp=${cliBuildTimestamp}"
-      echo "===================== File properties ===================== "
-      echo cliProps.join("\n")
-      def setCliPropsResult = sh(
-        script: "jfrog rt set-props \"${cliTargetFullPath}\" \"" + cliProps.join(';') + "\"",
-        returnStdout: true
-      ).trim()
-      echo "artifactory set-props result:"
-      echo setCliPropsResult
-      def setCliPropsResultObject = readJSON(text: setCliPropsResult)
-      if (setCliPropsResultObject['status'] != 'success' ||
-          setCliPropsResultObject['totals']['success'] != 1 || setPropsResultObject['totals']['failure'] != 0) {
-        error "Failed on verifying set-props result"
-      } else {
-        echo "set-props result is successful as expected"
-      }
+      // promote Zowe CLI nightly build
+      cliTargetFullPath = promoteArtifact(cliSourceBuildInfo, cliTargetFilePath)
     }
 
     stage('done') {
       def slackColor = 'good'
       def message = """
-Build #${buildNumber} is promoted as nightly build. You can download from:
+Build #${sourceBuildInfo['build.number']} is promoted as nightly build. You can download from:
 
 ${params.ARTIFACTORY_URL}/${targetFullPath}
 

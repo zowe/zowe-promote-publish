@@ -243,32 +243,31 @@ node ('ibm-jenkins-slave-nvm') {
       }
 
       // check build info
-      withCredentials([usernamePassword(credentialsId: params.ARTIFACTORY_SECRET, passwordVariable: 'PASSWORD', usernameVariable: 'USERNAME')]) {
-        if (params.ZOWE_BUILD_NUMBER) {
-          // FIXME: this could be risky if build name including non-ASCII characters
-          def encodedBuildName = params.ZOWE_BUILD_NAME.replace(' ', '%20')
-          gitRevision = sh(
-            script: "curl -u \"${USERNAME}:${PASSWORD}\" -sS \"${params.ARTIFACTORY_URL}/api/build/${encodedBuildName}/${params.ZOWE_BUILD_NUMBER}\" | jq \".buildInfo.vcsRevision\"",
-            returnStdout: true
-          ).trim()
-          gitRevision = gitRevision.replace('"', '')
-          if (!(gitRevision ==~ /^[0-9a-fA-F]{40}$/)) { // if it's a SHA-1 commit hash
-            error "Cannot extract git revision from build \"${params.ZOWE_BUILD_NAME}/${params.ZOWE_BUILD_NUMBER}\""
-          }
-          echo ">>>> Build ${params.ZOWE_BUILD_NAME}/${params.ZOWE_BUILD_NUMBER} commit hash is ${gitRevision}, may proceed."
+      if (params.ZOWE_BUILD_NUMBER) {
+        gitRevision = getArtifactoryBuildInfoByAPI(
+          params.ARTIFACTORY_URL,
+          params.ARTIFACTORY_SECRET,
+          params.ZOWE_BUILD_NAME,
+          params.ZOWE_BUILD_NUMBER,
+          '.buildInfo.vcsRevision'
+        )
+        if (!(gitRevision ==~ /^[0-9a-fA-F]{40}$/)) { // if it's a SHA-1 commit hash
+          error "Cannot extract git revision from build \"${params.ZOWE_BUILD_NAME}/${params.ZOWE_BUILD_NUMBER}\""
         }
-        if (params.ZOWE_CLI_BUILD_NUMBER) {
-          def encodedCliBuildName = params.ZOWE_CLI_BUILD_NAME.replace(' ', '%20')
-          gitCliRevision = sh(
-            script: "curl -u \"${USERNAME}:${PASSWORD}\" -sS \"${params.ARTIFACTORY_URL}/api/build/${encodedCliBuildName}/${params.ZOWE_CLI_BUILD_NUMBER}\" | jq \".buildInfo.vcsRevision\"",
-            returnStdout: true
-          ).trim()
-          gitCliRevision = gitCliRevision.replace('"', '')
-          if (!(gitCliRevision ==~ /^[0-9a-fA-F]{40}$/)) { // if it's a SHA-1 commit hash
-            error "Cannot extract git revision from build \"${params.ZOWE_CLI_BUILD_NAME}/${params.ZOWE_CLI_BUILD_NUMBER}\""
-          }
-          echo ">>>> Build ${params.ZOWE_CLI_BUILD_NAME}/${params.ZOWE_CLI_BUILD_NUMBER} commit hash is ${gitCliRevision}, may proceed."
+        echo ">>>> Build ${params.ZOWE_BUILD_NAME}/${params.ZOWE_BUILD_NUMBER} commit hash is ${gitRevision}, may proceed."
+      }
+      if (params.ZOWE_CLI_BUILD_NUMBER) {
+        gitCliRevision = getArtifactoryBuildInfoByAPI(
+          params.ARTIFACTORY_URL,
+          params.ARTIFACTORY_SECRET,
+          params.ZOWE_CLI_BUILD_NAME,
+          params.ZOWE_CLI_BUILD_NUMBER,
+          '.buildInfo.vcsRevision'
+        )
+        if (!(gitCliRevision ==~ /^[0-9a-fA-F]{40}$/)) { // if it's a SHA-1 commit hash
+          error "Cannot extract git revision from build \"${params.ZOWE_CLI_BUILD_NAME}/${params.ZOWE_CLI_BUILD_NUMBER}\""
         }
+        echo ">>>> Build ${params.ZOWE_CLI_BUILD_NAME}/${params.ZOWE_CLI_BUILD_NUMBER} commit hash is ${gitCliRevision}, may proceed."
       }
 
       // check deploy target directory
@@ -300,234 +299,50 @@ EOF""", returnStatus:true)
 
     stage('promote') {
       // get build information
-      def artifactorySearch = ""
-      if (params.ZOWE_BUILD_NUMBER) {
-        artifactorySearch = "--build=\"${params.ZOWE_BUILD_NAME}/${params.ZOWE_BUILD_NUMBER}\" ${params.ZOWE_BUILD_REPOSITORY}/*"
-      } else if (params.ZOWE_BUILD_RC_PATH) {
-        artifactorySearch = "\"${params.ZOWE_BUILD_RC_PATH}\""
-      } else {
-        error "No file to promote"
-      }
-      def buildsInfoText = sh(
-        script: "jfrog rt search ${artifactorySearch}",
-        returnStdout: true
-      ).trim()
-      echo "Build/file search result:"
-      echo buildsInfoText
-      /**
-       * Example result:
-       *
-       * [
-       *   {
-       *     "path": "libs-snapshot-local/com/project/zowe/0.9.0-SNAPSHOT/zowe-0.9.0-20180918.163158-38.pax",
-       *     "props": {
-       *       "build.name": "zowe-install-packaging :: master",
-       *       "build.number": "38",
-       *       "build.parentName": "zlux",
-       *       "build.parentNumber": "570",
-       *       "build.timestamp": "1537287202277"
-       *     }
-       *   }
-       * ]
-       */
-      def buildsInfo = readJSON text: buildsInfoText
-      def buildSize = buildsInfo.size()
-      if (buildSize < 1) {
-        if (params.ZOWE_BUILD_NUMBER) {
-          error "Cannot find build \"${params.ZOWE_BUILD_NAME}/${params.ZOWE_BUILD_NUMBER}\""
-        } else if (params.ZOWE_BUILD_RC_PATH) {
-          error "Cannot find file \"${params.ZOWE_BUILD_RC_PATH}\""
-        }
-      }
-      if (buildSize > 1) {
-        if (params.ZOWE_BUILD_NUMBER) {
-          error "Found ${buildSize} builds for \"${params.ZOWE_BUILD_NAME}/${params.ZOWE_BUILD_NUMBER}\""
-        } else if (params.ZOWE_BUILD_RC_PATH) {
-          error "Found ${buildSize} files for \"${params.ZOWE_BUILD_RC_PATH}\""
-        }
-      }
-      def buildInfo = buildsInfo.first()
-      if (!buildInfo || !buildInfo.path) {
-        error "Failed to find build artifactory."
-      }
+      def buildInfo = getArtifactInfoByCLI(
+        (params.ZOWE_BUILD_RC_PATH) ? params.ZOWE_BUILD_RC_PATH : "${params.ZOWE_BUILD_REPOSITORY}/*",
+        params.ZOWE_BUILD_NAME,
+        params.ZOWE_BUILD_NUMBER
+      )
 
-      // extract build information
-      def buildTimestamp = buildInfo.props.get('build.timestamp')
-      // think this should be a bug
-      // readJSON returns buildTimestamp as net.sf.json.JSONArray
-      // this step is a workaround
-      if (buildTimestamp.getClass().toString().endsWith('JSONArray')) {
-        buildTimestamp = buildTimestamp.get(0)
-      }
       // get original build name/number
-      def buildName = buildInfo.props.get('build.name')
-      if (buildName.getClass().toString().endsWith('JSONArray')) {
-        buildName = buildName.get(0)
-      }
-      def buildNumber = buildInfo.props.get('build.number')
-      if (buildNumber.getClass().toString().endsWith('JSONArray')) {
-        buildNumber = buildNumber.get(0)
-      }
-      if (buildName.contains('zowe-promote-publish')) {
-        // find parent build
-        buildName = buildInfo.props.get('build.parentName')
-        if (buildName.getClass().toString().endsWith('JSONArray')) {
-          buildName = buildName.get(0)
-        }
-        buildNumber = buildInfo.props.get('build.parentNumber')
-        if (buildNumber.getClass().toString().endsWith('JSONArray')) {
-          buildNumber = buildNumber.get(0)
-        }
-      }
-      echo "Build \"${buildName}/${buildNumber}\":"
-      echo "- pax path       : ${buildInfo.path}"
-      echo "- build timestamp: ${buildTimestamp}"
-
-      // copy artifact
-      echo "===================== Promoting (copying) ===================== "
-      echo "- from: ${buildInfo.path}"
-      echo "-   to: ${releaseFileFull}"
-      sh "jfrog rt copy --flat \"${buildInfo.path}\" \"${releaseFileFull}\""
-
-      // update file property
-      def props = []
-      def currentBuildName = env.JOB_NAME.replace('/', ' :: ')
-      props << "build.name=${currentBuildName}"
-      props << "build.number=${env.BUILD_NUMBER}"
-      props << "build.parentName=${buildName}"
-      props << "build.parentNumber=${buildNumber}"
-      props << "build.timestamp=${buildTimestamp}"
-      echo "===================== File properties ===================== "
-      echo props.join("\n")
-      sh "jfrog rt set-props \"${releaseFileFull}\" \"" + props.join(';') + "\""
-
-      // FIXME: move the similar process to library
-      // >>>> promote CLI package
-      // get build information
-      def cliArtifactorySearch = ""
-      if (params.ZOWE_CLI_BUILD_NUMBER) {
-        cliArtifactorySearch = "--build=\"${params.ZOWE_CLI_BUILD_NAME}/${params.ZOWE_CLI_BUILD_NUMBER}\" ${params.ZOWE_CLI_BUILD_REPOSITORY}/*"
-      } else if (params.ZOWE_CLI_BUILD_RC_PATH) {
-        cliArtifactorySearch = "\"${params.ZOWE_CLI_BUILD_RC_PATH}\""
-      } else {
-        error "No file to promote"
-      }
-      def cliBuildsInfoText = sh(
-        script: "jfrog rt search ${cliArtifactorySearch}",
-        returnStdout: true
-      ).trim()
-      echo "Build/file search result:"
-      echo cliBuildsInfoText
-      /**
-       * Example result:
-       *
-       * [
-       *   {
-       *     "path": "libs-snapshot-local/org/zowe/cli/zowe-cli-package/0.9.5-SNAPSHOT/zowe-cli-package-0.9.5-20181126.171303-1.zip",
-       *     "props": {
-       *       "build.name": "Zowe CLI Bundle :: master",
-       *       "build.number": "23",
-       *       "build.timestamp": "1543252383120",
-       *       "vcs.revision": "be679f4fd22eab20dbd17ab32d88a6c76d0ae70b"
-       *     }
-       *   }
-       * ]
-       */
-      def cliBuildsInfo = readJSON text: cliBuildsInfoText
-      def cliBuildSize = cliBuildsInfo.size()
-      if (cliBuildSize < 1) {
-        if (params.ZOWE_CLI_BUILD_NUMBER) {
-          error "Cannot find build \"${params.ZOWE_CLI_BUILD_NAME}/${params.ZOWE_CLI_BUILD_NUMBER}\""
-        } else if (params.ZOWE_CLI_BUILD_RC_PATH) {
-          error "Cannot find file \"${params.ZOWE_CLI_BUILD_RC_PATH}\""
-        }
-      }
-      if (cliBuildSize > 1) {
-        if (params.ZOWE_CLI_BUILD_NUMBER) {
-          error "Found ${cliBuildSize} builds for \"${params.ZOWE_CLI_BUILD_NAME}/${params.ZOWE_CLI_BUILD_NUMBER}\""
-        } else if (params.ZOWE_CLI_BUILD_RC_PATH) {
-          error "Found ${cliBuildSize} files for \"${params.ZOWE_CLI_BUILD_RC_PATH}\""
-        }
-      }
-      def cliBuildInfo = cliBuildsInfo.first()
-      if (!cliBuildInfo || !cliBuildInfo.path) {
-        error "Failed to find build artifactory."
+      if (buildInfo['build.name'].contains('zowe-promote-publish') &&
+        buildInfo['build.parentName'] && buildInfo['build.parentNumber']) {
+        buildInfo['build.name'] = buildInfo['build.parentName']
+        buildInfo['build.number'] = buildInfo['build.parentNumber']
       }
 
-      // extract build information
-      def cliBuildTimestamp = cliBuildInfo.props.get('build.timestamp')
-      // think this should be a bug
-      // readJSON returns cliBuildTimestamp as net.sf.json.JSONArray
-      // this step is a workaround
-      if (cliBuildTimestamp.getClass().toString().endsWith('JSONArray')) {
-        cliBuildTimestamp = cliBuildTimestamp.get(0)
-      }
-      // get original build name/number
-      def cliBuildName = cliBuildInfo.props.get('build.name')
-      if (cliBuildName.getClass().toString().endsWith('JSONArray')) {
-        cliBuildName = cliBuildName.get(0)
-      }
-      def cliBuildNumber = cliBuildInfo.props.get('build.number')
-      if (cliBuildNumber.getClass().toString().endsWith('JSONArray')) {
-        cliBuildNumber = cliBuildNumber.get(0)
-      }
-      if (cliBuildName.contains('zowe-promote-publish')) {
-        // find parent build
-        cliBuildName = cliBuildInfo.props.get('build.parentName')
-        if (cliBuildName.getClass().toString().endsWith('JSONArray')) {
-          cliBuildName = cliBuildName.get(0)
-        }
-        cliBuildNumber = cliBuildInfo.props.get('build.parentNumber')
-        if (cliBuildNumber.getClass().toString().endsWith('JSONArray')) {
-          cliBuildNumber = cliBuildNumber.get(0)
-        }
-      }
-      echo "CLI Build \"${cliBuildName}/${cliBuildNumber}\":"
-      echo "- zip path       : ${cliBuildInfo.path}"
-      echo "- build timestamp: ${cliBuildTimestamp}"
+      // promote Zowe build artifact
+      promoteArtifact(buildInfo, releaseFilePath, releaseFilename)
 
-      // copy artifact
-      echo "===================== Promoting (copying) ===================== "
-      echo "- from: ${cliBuildInfo.path}"
-      echo "-   to: ${releaseCliFileFull}"
-      sh "jfrog rt copy --flat \"${cliBuildInfo.path}\" \"${releaseCliFileFull}\""
+      // get CLI build information
+      def cliBuildInfo = getArtifactInfoByCLI(
+        (params.ZOWE_CLI_BUILD_RC_PATH) ? params.ZOWE_CLI_BUILD_RC_PATH : "${params.ZOWE_CLI_BUILD_REPOSITORY}/*",
+        params.ZOWE_CLI_BUILD_NAME,
+        params.ZOWE_CLI_BUILD_NUMBER
+      )
 
-      // update file property
-      def cliProps = []
-      def currentcliBuildName = env.JOB_NAME.replace('/', ' :: ')
-      cliProps << "build.name=${currentcliBuildName}"
-      cliProps << "build.number=${env.BUILD_NUMBER}"
-      cliProps << "build.parentName=${cliBuildName}"
-      cliProps << "build.parentNumber=${cliBuildNumber}"
-      cliProps << "build.timestamp=${cliBuildTimestamp}"
-      echo "===================== File properties ===================== "
-      echo cliProps.join("\n")
-      sh "jfrog rt set-props \"${releaseCliFileFull}\" \"" + cliProps.join(';') + "\""
+      // get original CLI build name/number
+      if (cliBuildInfo['build.name'].contains('zowe-promote-publish') &&
+        cliBuildInfo['build.parentName'] && cliBuildInfo['build.parentNumber']) {
+        cliBuildInfo['build.name'] = cliBuildInfo['build.parentName']
+        cliBuildInfo['build.number'] = cliBuildInfo['build.parentNumber']
+      }
+
+      // promote CLI build artifact
+      promoteArtifact(cliBuildInfo, releaseFilePath, releaseCliFilename)
     }
 
     utils.conditionalStage('tag', isFormalRelease) {
       // tag the repositories for a formal release
-      sh """
-        git config --global user.email \"${params.GITHUB_USER_EMAIL}\"
-        git config --global user.name \"${params.GITHUB_USER_NAME}\"
-      """
-      withCredentials([usernamePassword(
-        credentialsId: params.GITHUB_CREDENTIALS,
-        passwordVariable: 'GIT_PASSWORD',
-        usernameVariable: 'GIT_USERNAME'
-      )]) {
-        // tag zowe-install-packaging repository
-        sh """
-        mkdir .zowe-install-packaging
-        cd .zowe-install-packaging
-        git init
-        git remote add origin https://github.com/${zoweInstallPackagingRepo}.git
-        git fetch origin
-        git checkout ${gitRevision}
-        git tag v${params.ZOWE_RELEASE_VERSION}
-        git push --tags 'https://${GIT_USERNAME}:${GIT_PASSWORD}@github.com/${zoweInstallPackagingRepo}.git'
-        """
-      }
+      tagGithubRepository(
+        zoweInstallPackagingRepo,
+        gitRevision,
+        "v${params.ZOWE_RELEASE_VERSION}",
+        params.GITHUB_CREDENTIALS,
+        params.GITHUB_USER_NAME,
+        params.GITHUB_USER_EMAIL
+      )
     }
 
     stage('publish') {
