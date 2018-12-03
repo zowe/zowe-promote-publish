@@ -301,8 +301,8 @@ EOF""", returnStatus:true)
       // get build information
       def buildInfo = getArtifactInfoByCLI(
         (params.ZOWE_BUILD_RC_PATH) ? params.ZOWE_BUILD_RC_PATH : "${params.ZOWE_BUILD_REPOSITORY}/*",
-        params.ZOWE_BUILD_NAME,
-        params.ZOWE_BUILD_NUMBER
+        (params.ZOWE_BUILD_RC_PATH) ? '': params.ZOWE_BUILD_NAME,
+        (params.ZOWE_BUILD_RC_PATH) ? '': params.ZOWE_BUILD_NUMBER
       )
 
       // get original build name/number
@@ -332,8 +332,8 @@ EOF""", returnStatus:true)
       // get CLI build information
       def cliBuildInfo = getArtifactInfoByCLI(
         (params.ZOWE_CLI_BUILD_RC_PATH) ? params.ZOWE_CLI_BUILD_RC_PATH : "${params.ZOWE_CLI_BUILD_REPOSITORY}/*",
-        params.ZOWE_CLI_BUILD_NAME,
-        params.ZOWE_CLI_BUILD_NUMBER
+        (params.ZOWE_CLI_BUILD_RC_PATH) ? '' : params.ZOWE_CLI_BUILD_NAME,
+        (params.ZOWE_CLI_BUILD_RC_PATH) ? '' : params.ZOWE_CLI_BUILD_NUMBER
       )
 
       // get original CLI build name/number
