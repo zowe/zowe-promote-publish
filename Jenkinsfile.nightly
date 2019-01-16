@@ -138,6 +138,7 @@ node ('ibm-jenkins-slave-nvm') {
         if (params.TEST_RUN) {
           echo """Skip testing with parameters:
 
+STARTED_BY_AUTOMATION: true
 SKIP_RESET_IMAGE: true
 ZOWE_ARTIFACTORY_PATTERN: '${sourceBuildInfo.path}'
 ZOWE_ARTIFACTORY_BUILD: ''
@@ -149,6 +150,7 @@ TEST_CASE_DEBUG_INFORMATION: 'test:*'
           def test_result = build(
               job: '/zowe-install-test/master',
               parameters: [
+                booleanParam(name: 'STARTED_BY_AUTOMATION', value: true),
                 booleanParam(name: 'SKIP_RESET_IMAGE', value: true),
                 string(name: 'ZOWE_ARTIFACTORY_PATTERN', value: sourceBuildInfo.path),
                 string(name: 'ZOWE_ARTIFACTORY_BUILD', value: ''),
