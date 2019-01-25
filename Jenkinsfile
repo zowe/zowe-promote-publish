@@ -174,7 +174,7 @@ opts.push(parameters(customParameters))
 // set build properties
 properties(opts)
 
-node ('ibm-jenkins-slave-nvm') {
+node ('ibm-jenkins-slave-nvm-jnlp') {
   currentBuild.result = 'SUCCESS'
 
   def releaseFilename = "zowe-${params.ZOWE_RELEASE_VERSION}.pax"
