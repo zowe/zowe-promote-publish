@@ -26,6 +26,8 @@
 ZOWE_BUILD_DIRECTORY=$1
 ZOWE_BUILD_CATEGORY=$2
 ZOWE_BUILD_VERSION=$3
+CODE_SIGNING_KEY=$4
+CODE_SIGNING_PASSPHRASE=$5
 ZOWE_BUILD_FILE=zowe-$ZOWE_BUILD_VERSION.pax
 ZOWE_CLI_PACKAGE=zowe-cli-package-$ZOWE_BUILD_VERSION.zip
 
@@ -74,12 +76,26 @@ done
 # generate SHA512 hash for big file
 echo "> generating hash for Zowe build ..."
 gpg --print-md SHA512 $ZOWE_BUILD_FILE > $ZOWE_BUILD_FILE.sha512
+if [ ! -z "${CODE_SIGNING_KEY}" ]; then
+  # signing the build
+  echo "> signing the Zowe build with key ${CODE_SIGNING_KEY} ..."
+  echo $CODE_SIGNING_PASSPHRASE | gpg --batch --pinentry-mode loopback --passphrase-fd 0 --local-user $CODE_SIGNING_KEY --sign --armor --detach-sig $ZOWE_BUILD_FILE
+fi
 # generate SHA512 hash for cli bundle
 echo "> generating hash for Zowe CLI bundle ..."
 gpg --print-md SHA512 $ZOWE_CLI_PACKAGE > $ZOWE_CLI_PACKAGE.sha512
+if [ ! -z "${CODE_SIGNING_KEY}" ]; then
+  # signing the build
+  echo "> signing the Zowe CLI bundle with key ${CODE_SIGNING_KEY} ..."
+  echo $CODE_SIGNING_PASSPHRASE | gpg --batch --pinentry-mode loopback --passphrase-fd 0 --local-user $CODE_SIGNING_KEY --sign --armor --detach-sig $ZOWE_CLI_PACKAGE
+fi
 
 echo "> generating version file ..."
 echo "$ZOWE_BUILD_VERSION" > version
+if [ ! -z "${CODE_SIGNING_KEY}" ]; then
+  echo "> generating code-signing-key file ..."
+  echo "${CODE_SIGNING_KEY}" > code-signing-key
+fi
 
 # show build result
 echo "> build folder result:"

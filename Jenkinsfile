@@ -147,6 +147,13 @@ customParameters.push(string(
   trim: true,
   required: true
 ))
+customParameters.push(string(
+  name: 'CODE_SIGNING_KEY_PASSPHRASE',
+  description: 'Key ID and passphrase to sign the build',
+  credentialType: 'com.cloudbees.plugins.credentials.impl.UsernamePasswordCredentialsImpl',
+  defaultValue: 'code-signing-key-passphrase-jack',
+  required: false
+))
 customParameters.push(credentials(
   name: 'GITHUB_CREDENTIALS',
   description: 'Github user credentials',
@@ -365,19 +372,21 @@ EOF""", returnStatus:true)
       sh "jfrog rt download --flat \"${releaseCliFileFull}\""
 
       withCredentials([usernamePassword(credentialsId: params.PUBLISH_SSH_CREDENTIAL, passwordVariable: 'PASSWORD', usernameVariable: 'USERNAME')]) {
-        // upload to publish server
-        sh """SSHPASS=${PASSWORD} sshpass -e sftp -o BatchMode=no -o StrictHostKeyChecking=no -o PubkeyAuthentication=no -b - -P ${params.PUBLISH_SSH_PORT} ${USERNAME}@${params.PUBLISH_SSH_HOST} << EOF
+        withCredentials([usernamePassword(credentialsId: params.CODE_SIGNING_KEY_PASSPHRASE, passwordVariable: 'CODE_SIGNING_PASSPHRASE', usernameVariable: 'CODE_SIGNING_KEY')]) {
+          // upload to publish server
+          sh """SSHPASS=${PASSWORD} sshpass -e sftp -o BatchMode=no -o StrictHostKeyChecking=no -o PubkeyAuthentication=no -b - -P ${params.PUBLISH_SSH_PORT} ${USERNAME}@${params.PUBLISH_SSH_HOST} << EOF
 put ${releaseFilename}
 put ${releaseCliFilename}
 put scripts/zowe-publish.sh
 bye
 EOF"""
 
-        // move to target folder, split and generate hash
-        sh """SSHPASS=${PASSWORD} sshpass -e ssh -tt -o StrictHostKeyChecking=no -o PubkeyAuthentication=no -p ${params.PUBLISH_SSH_PORT} ${USERNAME}@${params.PUBLISH_SSH_HOST} << EOF
-cd ~ && chmod +x zowe-publish.sh && ./zowe-publish.sh "${params.PUBLISH_DIRECTORY}" "${params.ZOWE_RELEASE_CATEGORY}" "${params.ZOWE_RELEASE_VERSION}" || exit 1
+          // move to target folder, split and generate hash
+          sh """SSHPASS=${PASSWORD} sshpass -e ssh -tt -o StrictHostKeyChecking=no -o PubkeyAuthentication=no -p ${params.PUBLISH_SSH_PORT} ${USERNAME}@${params.PUBLISH_SSH_HOST} << EOF
+cd ~ && chmod +x zowe-publish.sh && ./zowe-publish.sh "${params.PUBLISH_DIRECTORY}" "${params.ZOWE_RELEASE_CATEGORY}" "${params.ZOWE_RELEASE_VERSION}" "${CODE_SIGNING_KEY}" "${CODE_SIGNING_PASSPHRASE}" || exit 1
 exit 0
 EOF"""
+        }
       }
 
     }
