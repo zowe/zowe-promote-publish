@@ -14,7 +14,7 @@ def isMasterBranch = env.BRANCH_NAME == 'master'
 def slackChannel = '#zowe-build'
 def zoweReleaseRepository = 'libs-release-local'
 def zoweReleasePath = '/org/zowe/nightly'
-def zoweBuildName = 'zowe-install-packaging :: master'
+def zoweBuildName = 'zowe-install-packaging :: staging'
 def zoweBuildRepository = 'libs-snapshot-local'
 def zoweCliReleasePath = '/org/zowe/nightly/cli'
 def zoweCliBuildName = 'Zowe CLI Bundle :: master'
@@ -115,7 +115,7 @@ node ('ibm-jenkins-slave-nvm-jnlp') {
 
         timeout(time: 1, unit: 'HOURS') {
           // run build
-          def build_result = build(job: '/zowe-install-packaging/master', propagate: false)
+          def build_result = build(job: '/zowe-install-packaging/staging', propagate: false)
           echo "Build result: ${build_result.result}"
           if (build_result.result != 'SUCCESS') {
             error "Failed to build a new Zowe driver, check failure details at ${build_result.absoluteUrl}"
