@@ -148,7 +148,7 @@ TEST_CASE_DEBUG_INFORMATION: 'test:*'
 """
         } else {
           def test_result = build(
-              job: '/zowe-install-test/master',
+              job: '/zowe-install-test/staging',
               parameters: [
                 booleanParam(name: 'STARTED_BY_AUTOMATION', value: true),
                 booleanParam(name: 'SKIP_RESET_IMAGE', value: true),
