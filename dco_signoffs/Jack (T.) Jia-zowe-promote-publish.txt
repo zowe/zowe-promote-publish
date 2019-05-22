@@ -1,0 +1,4 @@
+I, Jack (T.) Jia hereby sign-off-by all of my past commits to this repo subject to the Developer Certificate of Origin (DCO), Version 1.1. In the past I have used emails: jack-tiefeng.jia@ibm.com
+
+91b7491bd8dee1b31e82207886273a9db70525f2 release to stable category
+d329331cd4095863ee1201554b80e40b93759925 switch to formal release repository
