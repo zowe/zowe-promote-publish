@@ -89,20 +89,25 @@ node ('ibm-jenkins-slave-nvm-jnlp') {
       echo "Checking last build of \"${zoweBuildName}\" ..."
 
       // check artifactory for latest build with SMP/e
-      def latestBuild = getArtifactInfoByCLI("${zoweBuildRepository}/*/AZWE*.pax.Z", zoweBuildName)
+      try {
+        def latestBuild = getArtifactInfoByCLI("${zoweBuildRepository}/*/AZWE*.pax.Z", zoweBuildName)
 
-      // extract build information
-      def buildNumber = latestBuild['build.number']
-      def buildTimestamp = latestBuild['build.timestamp']
-      long buildTimestampInt = buildTimestamp as Long
-      def currentTimestamp = sh(script: 'date +"%s"', returnStdout: true).trim()
-      long currentTimestampInt = currentTimestamp as Long
-      def timeElapse = (currentTimestampInt * 1000 - buildTimestampInt) / (3600 * 1000)
-      echo "Build #${buildNumber} is ${timeElapse} hours ago"
-      if (timeElapse < 22) { // how many hours we consider it's too old?
-        echo "Will skip re-build."
-        sourceSmpeBuildInfo = latestBuild
-      } else {
+        // extract build information
+        def buildNumber = latestBuild['build.number']
+        def buildTimestamp = latestBuild['build.timestamp']
+        long buildTimestampInt = buildTimestamp as Long
+        def currentTimestamp = sh(script: 'date +"%s"', returnStdout: true).trim()
+        long currentTimestampInt = currentTimestamp as Long
+        def timeElapse = (currentTimestampInt * 1000 - buildTimestampInt) / (3600 * 1000)
+        echo "Build #${buildNumber} is ${timeElapse} hours ago"
+        if (timeElapse < 22) { // how many hours we consider it's too old?
+          echo "Will skip re-build."
+          sourceSmpeBuildInfo = latestBuild
+        } else {
+          echo "Will need to re-build."
+        }
+      } catch (es) {
+        echo "getArtifactInfoByCLI failed: ${es}"
         echo "Will need to re-build."
       }
 
