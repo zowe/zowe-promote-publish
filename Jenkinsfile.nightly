@@ -66,7 +66,9 @@ node ('ibm-jenkins-slave-nvm-jnlp') {
   def sourceSmpeBuildInfo = null
   def sourceSmpeReadmeInfo = null
   def targetFilePath = "${zoweReleaseRepository}${zoweReleasePath}"
-  def targetFullPath = null
+  def targetRegFullPath = null
+  def targetSmpeFullPath = null
+  def targetSmpeReadmeFullPath = null
   def cliSourceBuildInfo = null
   def cliTargetFilePath = "${zoweReleaseRepository}${zoweCliReleasePath}"
   def cliTargetFullPath = null
@@ -249,9 +251,9 @@ Skip Stage: SonarQube Scan: true
 
     stage('promote') {
       // promote Zowe nightly build
-      targetFullPath = promoteArtifact(sourceSmpeBuildInfo, targetFilePath)
-      targetFullPath = promoteArtifact(sourceSmpeReadmeInfo, targetFilePath)
-      targetFullPath = promoteArtifact(sourceRegBuildInfo, targetFilePath)
+      targetSmpeFullPath = promoteArtifact(sourceSmpeBuildInfo, targetFilePath)
+      targetSmpeReadmeFullPath = promoteArtifact(sourceSmpeReadmeInfo, targetFilePath)
+      targetRegFullPath = promoteArtifact(sourceRegBuildInfo, targetFilePath)
 
       // promote Zowe CLI nightly build
       cliTargetFullPath = promoteArtifact(cliSourceBuildInfo, cliTargetFilePath)
@@ -262,11 +264,13 @@ Skip Stage: SonarQube Scan: true
       def message = """
 Zowe Build ${zoweBuildName}#${sourceRegBuildInfo['build.number']} is promoted as nightly build. You can download from:
 
-${params.ARTIFACTORY_URL}/${targetFullPath}
+${params.ARTIFACTORY_URL}/${targetRegFullPath}
 
-(SMP/e build is promoted into same folder.)
+${params.ARTIFACTORY_URL}/${targetSmpeFullPath}
 
-The CLI Standalone Package ${zoweCliBuildName}#${cliSourceBuildInfo['build.number']} is promoted as nightly build. You can download from:
+${params.ARTIFACTORY_URL}/${targetSmpeReadmeFullPath}
+
+The CLI Standalone Package ${zoweCliBuildName}#${cliSourceBuildInfo['build.number']} is promoted as nightly CLI build. You can download from:
 
 ${params.ARTIFACTORY_URL}/${cliTargetFullPath}
 """
